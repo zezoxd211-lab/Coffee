@@ -159,8 +159,20 @@ export const STOCKS: Stock[] = [
   }
 ];
 
+// Simulated fetch from https://api.indices-api.com/open-high-low-close/TASI/2025-11-21
+// Mocking the data structure since we are in mockup mode
+export const TASI_OHLC_DATA = {
+  index: "TASI",
+  date: "2025-11-21",
+  open: 11845.20,
+  high: 11920.45,
+  low: 11810.15,
+  close: 11890.30,
+  volume: "245M"
+};
+
 export const MARKET_INDICES = [
-  { name: "TASI", value: 12150.45, change: 45.20, changePercent: 0.37 },
+  { name: "TASI", value: TASI_OHLC_DATA.close, change: TASI_OHLC_DATA.close - TASI_OHLC_DATA.open, changePercent: ((TASI_OHLC_DATA.close - TASI_OHLC_DATA.open) / TASI_OHLC_DATA.open) * 100 },
   { name: "Nomu", value: 25430.10, change: -120.50, changePercent: -0.47 },
   { name: "Energy", value: 5430.20, change: 12.10, changePercent: 0.22 },
   { name: "Banks", value: 11240.80, change: -30.40, changePercent: -0.27 }

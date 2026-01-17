@@ -1,12 +1,14 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/ui/stat-card";
 import { PriceChart } from "@/components/charts/price-chart";
-import { STOCKS, MARKET_INDICES } from "@/lib/mock-data";
+import { STOCKS, MARKET_INDICES, TASI_OHLC_DATA } from "@/lib/mock-data";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Info } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 
 export default function Dashboard() {
   const { t, language } = useLanguage();
@@ -17,7 +19,25 @@ export default function Dashboard() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">{t("market_overview")}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">{t("market_overview")}</h1>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full text-muted-foreground p-0">
+                    <Info className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="text-xs">
+                    {language === "ar" 
+                      ? `بيانات TASI ليوم ${TASI_OHLC_DATA.date}: افتتاح ${TASI_OHLC_DATA.open} | أعلى ${TASI_OHLC_DATA.high} | أدنى ${TASI_OHLC_DATA.low} | إغلاق ${TASI_OHLC_DATA.close}`
+                      : `TASI OHLC for ${TASI_OHLC_DATA.date}: Open ${TASI_OHLC_DATA.open} | High ${TASI_OHLC_DATA.high} | Low ${TASI_OHLC_DATA.low} | Close ${TASI_OHLC_DATA.close}`}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <p className="text-muted-foreground">{t("market_desc")}</p>
         </div>
 
