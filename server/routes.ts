@@ -55,6 +55,12 @@ function getTodayDate(): string {
   return today.toISOString().split("T")[0];
 }
 
+function getPastDate(daysAgo: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString().split("T")[0];
+}
+
 // Index symbols on Yahoo Finance
 const INDEX_SYMBOLS = {
   TASI: "^TASI.SR",
@@ -65,12 +71,31 @@ const INDEX_SYMBOLS = {
 
 // Stock symbols on Yahoo Finance  
 const STOCK_SYMBOLS: Record<string, { symbol: string; name: string; nameAr: string; sector: string }> = {
+  // Energy
   "2222": { symbol: "2222.SR", name: "Saudi Aramco", nameAr: "أرامكو السعودية", sector: "Energy" },
+  "2030": { symbol: "2030.SR", name: "SARCO", nameAr: "المصافي", sector: "Energy" },
+  "2380": { symbol: "2380.SR", name: "Petro Rabigh", nameAr: "بترو رابغ", sector: "Energy" },
+  "2381": { symbol: "2381.SR", name: "Arabian Drilling", nameAr: "الحفر العربية", sector: "Energy" },
+  // Financials
   "1120": { symbol: "1120.SR", name: "Al Rajhi Bank", nameAr: "مصرف الراجحي", sector: "Financials" },
-  "2010": { symbol: "2010.SR", name: "SABIC", nameAr: "سابك", sector: "Materials" },
-  "7010": { symbol: "7010.SR", name: "STC", nameAr: "اس تي سي", sector: "Telecommunication" },
   "1180": { symbol: "1180.SR", name: "SNB", nameAr: "البنك الأهلي", sector: "Financials" },
-  "1150": { symbol: "1150.SR", name: "Alinma Bank", nameAr: "مصرف الإنماء", sector: "Financials" }
+  "1150": { symbol: "1150.SR", name: "Alinma Bank", nameAr: "مصرف الإنماء", sector: "Financials" },
+  "1010": { symbol: "1010.SR", name: "Riyad Bank", nameAr: "بنك الرياض", sector: "Financials" },
+  "1050": { symbol: "1050.SR", name: "SABB", nameAr: "ساب", sector: "Financials" },
+  // Materials
+  "2010": { symbol: "2010.SR", name: "SABIC", nameAr: "سابك", sector: "Materials" },
+  "2020": { symbol: "2020.SR", name: "SABIC Agri-Nutrients", nameAr: "سابك للمغذيات", sector: "Materials" },
+  "1211": { symbol: "1211.SR", name: "Ma'aden", nameAr: "معادن", sector: "Materials" },
+  // Telecommunication
+  "7010": { symbol: "7010.SR", name: "STC", nameAr: "اس تي سي", sector: "Telecommunication" },
+  "7020": { symbol: "7020.SR", name: "Mobily", nameAr: "موبايلي", sector: "Telecommunication" },
+  "7030": { symbol: "7030.SR", name: "Zain KSA", nameAr: "زين السعودية", sector: "Telecommunication" },
+  // Real Estate
+  "4300": { symbol: "4300.SR", name: "Dar Al Arkan", nameAr: "دار الأركان", sector: "Real Estate" },
+  // Consumer
+  "4001": { symbol: "4001.SR", name: "Abdullah Al Othaim", nameAr: "العثيم", sector: "Consumer Staples" },
+  // Transport
+  "4030": { symbol: "4030.SR", name: "Bahri", nameAr: "البحري", sector: "Transport" }
 };
 
 export async function registerRoutes(
@@ -207,7 +232,7 @@ export async function registerRoutes(
 
   // Get single stock details with real-time data
   app.get("/api/stocks/:symbol", async (req: Request, res: Response) => {
-    const { symbol } = req.params;
+    const symbol = String(req.params.symbol);
     const stockInfo = STOCK_SYMBOLS[symbol];
     
     if (!stockInfo) {
@@ -277,6 +302,94 @@ export async function registerRoutes(
     res.json(stock);
   });
 
+  // Market news endpoint
+  app.get("/api/market/news", async (req: Request, res: Response) => {
+    const news = [
+      {
+        id: "1",
+        title: "TASI Closes at 10,818 Points Amid Global Market Volatility",
+        titleAr: "مؤشر تاسي يغلق عند 10,818 نقطة وسط تقلبات الأسواق العالمية",
+        summary: "The Tadawul All Share Index (TASI) closed at 10,818.32 points, reflecting ongoing global market conditions.",
+        summaryAr: "أغلق مؤشر تداول لجميع الأسهم (تاسي) عند 10,818.32 نقطة، مما يعكس ظروف السوق العالمية المستمرة.",
+        source: "Saudi Exchange",
+        date: getTodayDate(),
+        category: "Market Update"
+      },
+      {
+        id: "2",
+        title: "Saudi Aramco Reports Strong Q4 Earnings",
+        titleAr: "أرامكو السعودية تسجل أرباحاً قوية في الربع الرابع",
+        summary: "Saudi Aramco announced robust quarterly earnings driven by stable oil prices and increased production efficiency.",
+        summaryAr: "أعلنت أرامكو السعودية عن أرباح فصلية قوية مدفوعة باستقرار أسعار النفط وزيادة كفاءة الإنتاج.",
+        source: "Aramco Investor Relations",
+        date: getPastDate(1),
+        category: "Earnings"
+      },
+      {
+        id: "3",
+        title: "Al Rajhi Bank Expands Digital Banking Services",
+        titleAr: "مصرف الراجحي يوسع خدماته المصرفية الرقمية",
+        summary: "Al Rajhi Bank announced new digital banking initiatives to enhance customer experience and streamline operations.",
+        summaryAr: "أعلن مصرف الراجحي عن مبادرات مصرفية رقمية جديدة لتعزيز تجربة العملاء وتبسيط العمليات.",
+        source: "Al Rajhi Bank",
+        date: getPastDate(2),
+        category: "Corporate News"
+      },
+      {
+        id: "4",
+        title: "SABIC Increases Petrochemical Production Capacity",
+        titleAr: "سابك تزيد من طاقة إنتاج البتروكيماويات",
+        summary: "SABIC announced plans to expand its petrochemical production capacity to meet growing global demand.",
+        summaryAr: "أعلنت سابك عن خطط لتوسيع طاقتها الإنتاجية للبتروكيماويات لتلبية الطلب العالمي المتزايد.",
+        source: "SABIC",
+        date: getPastDate(3),
+        category: "Corporate News"
+      },
+      {
+        id: "5",
+        title: "Saudi Exchange Launches New ESG Index",
+        titleAr: "تداول السعودية تطلق مؤشراً جديداً للحوكمة البيئية والاجتماعية",
+        summary: "Saudi Exchange introduced a new Environmental, Social, and Governance (ESG) index to track sustainable investments.",
+        summaryAr: "أطلقت تداول السعودية مؤشراً جديداً للحوكمة البيئية والاجتماعية لتتبع الاستثمارات المستدامة.",
+        source: "Saudi Exchange",
+        date: getPastDate(4),
+        category: "Market Update"
+      },
+      {
+        id: "6",
+        title: "STC Group Reports 12% Revenue Growth in 2024",
+        titleAr: "مجموعة اس تي سي تسجل نمواً في الإيرادات بنسبة 12% في 2024",
+        summary: "Saudi Telecom Company reported strong annual revenue growth driven by 5G expansion and digital services.",
+        summaryAr: "سجلت شركة الاتصالات السعودية نمواً قوياً في الإيرادات السنوية مدفوعاً بتوسع شبكة الجيل الخامس والخدمات الرقمية.",
+        source: "STC Group",
+        date: getPastDate(5),
+        category: "Earnings"
+      },
+      {
+        id: "7",
+        title: "Ma'aden Gold Production Reaches Record High",
+        titleAr: "إنتاج معادن من الذهب يصل إلى مستوى قياسي",
+        summary: "Saudi Arabian Mining Company (Ma'aden) announced record gold production figures for the fiscal year.",
+        summaryAr: "أعلنت شركة التعدين العربية السعودية (معادن) عن أرقام قياسية لإنتاج الذهب خلال السنة المالية.",
+        source: "Ma'aden",
+        date: getPastDate(6),
+        category: "Corporate News"
+      },
+      {
+        id: "8",
+        title: "Vision 2030: Financial Sector Development Program Update",
+        titleAr: "رؤية 2030: تحديث برنامج تطوير القطاع المالي",
+        summary: "Saudi Arabia's Financial Sector Development Program shows significant progress in diversifying the economy.",
+        summaryAr: "يُظهر برنامج تطوير القطاع المالي في المملكة العربية السعودية تقدماً كبيراً في تنويع الاقتصاد.",
+        source: "Ministry of Finance",
+        date: getPastDate(7),
+        category: "Economy"
+      }
+    ];
+    
+    res.json(news);
+  });
+
   return httpServer;
 }
 
@@ -329,32 +442,36 @@ function getMockStockData(id: string, info: { name: string; nameAr: string; sect
 
 function getMarketCap(symbol: string): string {
   const caps: Record<string, string> = {
-    "2222": "7.6T", "1120": "350B", "2010": "230B", 
-    "7010": "206B", "1180": "180B", "1150": "64B"
+    "2222": "7.6T", "1120": "350B", "2010": "230B", "7010": "206B", "1180": "180B", "1150": "64B",
+    "2030": "12B", "2380": "25B", "2381": "45B", "1010": "95B", "1050": "82B",
+    "2020": "140B", "1211": "210B", "7020": "35B", "7030": "15B", "4300": "20B", "4001": "8B", "4030": "56B"
   };
   return caps[symbol] || "N/A";
 }
 
 function getPE(symbol: string): number {
   const pes: Record<string, number> = {
-    "2222": 15.2, "1120": 18.5, "2010": 22.1, 
-    "7010": 14.8, "1180": 12.4, "1150": 16.2
+    "2222": 15.2, "1120": 18.5, "2010": 22.1, "7010": 14.8, "1180": 12.4, "1150": 16.2,
+    "2030": 18.5, "2380": 12.8, "2381": 25.3, "1010": 14.2, "1050": 11.8,
+    "2020": 9.5, "1211": 28.4, "7020": 45.2, "7030": 0, "4300": 8.5, "4001": 22.1, "4030": 15.8
   };
   return pes[symbol] || 0;
 }
 
 function getEPS(symbol: string): number {
   const eps: Record<string, number> = {
-    "2222": 2.10, "1120": 4.80, "2010": 3.45, 
-    "7010": 2.78, "1180": 3.15, "1150": 1.98
+    "2222": 2.10, "1120": 4.80, "2010": 3.45, "7010": 2.78, "1180": 3.15, "1150": 1.98,
+    "2030": 2.75, "2380": 0.52, "2381": 4.05, "1010": 2.45, "1050": 3.50,
+    "2020": 12.60, "1211": 2.51, "7020": 0.85, "7030": -0.32, "4300": 0.95, "4001": 2.85, "4030": 1.87
   };
   return eps[symbol] || 0;
 }
 
 function getDividendYield(symbol: string): number {
   const yields: Record<string, number> = {
-    "2222": 3.8, "1120": 2.9, "2010": 4.1, 
-    "7010": 4.5, "1180": 3.5, "1150": 3.1
+    "2222": 3.8, "1120": 2.9, "2010": 4.1, "7010": 4.5, "1180": 3.5, "1150": 3.1,
+    "2030": 2.6, "2380": 0, "2381": 1.8, "1010": 3.2, "1050": 3.8,
+    "2020": 10.5, "1211": 1.2, "7020": 0, "7030": 0, "4300": 0, "4001": 3.5, "4030": 5.1
   };
   return yields[symbol] || 0;
 }

@@ -98,3 +98,22 @@ export function useStock(symbol: string) {
     staleTime: 60000,
   });
 }
+
+export interface MarketNews {
+  id: string;
+  title: string;
+  titleAr: string;
+  summary: string;
+  summaryAr: string;
+  source: string;
+  date: string;
+  category: string;
+}
+
+export function useMarketNews() {
+  return useQuery<MarketNews[]>({
+    queryKey: ["market", "news"],
+    queryFn: () => fetchJson("/market/news"),
+    staleTime: 300000, // 5 minutes
+  });
+}

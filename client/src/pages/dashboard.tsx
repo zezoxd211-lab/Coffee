@@ -1,11 +1,11 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatCard } from "@/components/ui/stat-card";
 import { PriceChart } from "@/components/charts/price-chart";
-import { useMarketIndices, useTASIOHLC, useTASIHistory, useStocks } from "@/lib/api";
+import { useMarketIndices, useTASIOHLC, useTASIHistory, useStocks, useMarketNews } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { ArrowUpRight, ArrowDownRight, TrendingUp, Info, Loader2, AlertCircle } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, TrendingUp, Info, Loader2, AlertCircle, Newspaper, ExternalLink } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
 import { getStockLogo } from "@/lib/stock-logos";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const { data: tasiOHLC, isLoading: tasiLoading } = useTASIOHLC();
   const { data: tasiHistory, isLoading: historyLoading } = useTASIHistory(30);
   const { data: stocks, isLoading: stocksLoading } = useStocks();
+  const { data: news, isLoading: newsLoading } = useMarketNews();
 
   return (
     <DashboardLayout>
@@ -212,6 +213,59 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Newspaper className="h-5 w-5" />
+                {language === "ar" ? "أخبار السوق" : "Market News"}
+              </CardTitle>
+              <CardDescription>
+                {language === "ar" ? "آخر الأخبار والتحديثات من سوق تداول السعودية" : "Latest news and updates from Saudi Exchange"}
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="flex items-center gap-1">
+              <ExternalLink className="h-3 w-3" />
+              Saudi Exchange
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            {newsLoading ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="p-4 border rounded-lg">
+                    <Skeleton className="h-4 w-20 mb-2" />
+                    <Skeleton className="h-5 w-full mb-2" />
+                    <Skeleton className="h-4 w-full mb-1" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 max-h-[400px] overflow-y-auto pr-2">
+                {news?.map((item) => (
+                  <div key={item.id} className="p-4 border rounded-lg hover:bg-accent/50 transition-colors" data-testid={`news-item-${item.id}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge variant="secondary" className="text-xs">{item.category}</Badge>
+                      <span className="text-xs text-muted-foreground">{item.date}</span>
+                    </div>
+                    <h4 className="font-medium text-sm mb-2 line-clamp-2">
+                      {language === "ar" ? item.titleAr : item.title}
+                    </h4>
+                    <p className="text-xs text-muted-foreground line-clamp-2">
+                      {language === "ar" ? item.summaryAr : item.summary}
+                    </p>
+                    <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                      <span>{language === "ar" ? "المصدر:" : "Source:"}</span>
+                      <span className="font-medium">{item.source}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
