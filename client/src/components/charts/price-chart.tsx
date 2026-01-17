@@ -190,7 +190,7 @@ export function PriceChart({ data, title, color = "hsl(var(--primary))", showTim
                     borderRadius: "8px",
                     color: "hsl(var(--popover-foreground))"
                   }}
-                  formatter={(value: number, name: string) => {
+                  formatter={(value: any, name: string) => {
                     const labels: Record<string, string> = {
                       close: "Close",
                       open: "Open",
@@ -198,10 +198,13 @@ export function PriceChart({ data, title, color = "hsl(var(--primary))", showTim
                       low: "Low",
                       volume: "Volume"
                     };
-                    if (name === "volume") {
-                      return [value?.toLocaleString(), labels[name] || name];
+                    if (Array.isArray(value)) {
+                      return null;
                     }
-                    return [`${value?.toFixed(2)} SAR`, labels[name] || name];
+                    if (name === "volume") {
+                      return [typeof value === 'number' ? value.toLocaleString() : value, labels[name] || name];
+                    }
+                    return [typeof value === 'number' ? `${value.toFixed(2)} SAR` : value, labels[name] || name];
                   }}
                   labelFormatter={(label) => new Date(label).toLocaleDateString()}
                 />
