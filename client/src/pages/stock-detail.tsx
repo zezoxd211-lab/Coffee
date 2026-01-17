@@ -10,9 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Star, Download, Share2 } from "lucide-react";
 import { Link } from "wouter";
 import NotFound from "./not-found";
+import { useLanguage } from "@/lib/LanguageContext";
 
 export default function StockDetail() {
   const [match, params] = useRoute("/stock/:symbol");
+  const { t, language, isRtl } = useLanguage();
   
   if (!match) return <NotFound />;
 
@@ -35,7 +37,11 @@ export default function StockDetail() {
     <DashboardLayout>
       <div className="space-y-6 max-w-6xl mx-auto">
         <div className="flex items-center gap-2 text-muted-foreground text-sm mb-4">
-            <Link href="/"><a className="hover:text-foreground transition-colors flex items-center gap-1"><ArrowLeft className="h-3 w-3" /> Back to Market</a></Link>
+            <Link href="/"><a className="hover:text-foreground transition-colors flex items-center gap-1">
+                {isRtl ? null : <ArrowLeft className="h-3 w-3" />}
+                {t("back_to_market")}
+                {isRtl ? <ArrowLeft className="h-3 w-3 rotate-180" /> : null}
+            </a></Link>
             <span>/</span>
             <span className="text-foreground font-medium">{stock.symbol}</span>
         </div>
@@ -43,17 +49,17 @@ export default function StockDetail() {
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold tracking-tight">{stock.name}</h1>
+              <h1 className="text-4xl font-bold tracking-tight">{language === "ar" ? stock.nameAr : stock.name}</h1>
               <Badge variant="outline" className="text-lg py-1 px-3 font-mono">{stock.symbol}</Badge>
             </div>
-            <p className="text-xl text-muted-foreground font-arabic">{stock.nameAr}</p>
+            <p className="text-xl text-muted-foreground font-arabic">{language === "ar" ? stock.name : stock.nameAr}</p>
             <div className="flex items-center gap-2 mt-2">
                 <Badge className="bg-muted text-muted-foreground hover:bg-muted/80">{stock.sector}</Badge>
                 <Badge variant="outline">Tadawul</Badge>
             </div>
           </div>
           
-          <div className="flex flex-col items-end">
+          <div className={isRtl ? "flex flex-col items-start" : "flex flex-col items-end"}>
             <div className="text-4xl font-mono font-bold">{stock.price.toFixed(2)} <span className="text-lg text-muted-foreground font-sans">SAR</span></div>
             <div className={`flex items-center gap-2 text-lg font-medium ${isPositive ? 'text-success' : 'text-destructive'}`}>
                {isPositive ? '+' : ''}{stock.change.toFixed(2)} ({isPositive ? '+' : ''}{stock.changePercent.toFixed(2)}%)
@@ -63,16 +69,16 @@ export default function StockDetail() {
         </div>
 
         <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="gap-2"><Star className="h-4 w-4" /> Watch</Button>
-            <Button variant="outline" size="sm" className="gap-2"><Download className="h-4 w-4" /> Export Data</Button>
-            <Button variant="outline" size="sm" className="gap-2"><Share2 className="h-4 w-4" /> Share</Button>
+            <Button variant="outline" size="sm" className="gap-2"><Star className="h-4 w-4" /> {t("watch")}</Button>
+            <Button variant="outline" size="sm" className="gap-2"><Download className="h-4 w-4" /> {t("export")}</Button>
+            <Button variant="outline" size="sm" className="gap-2"><Share2 className="h-4 w-4" /> {t("share")}</Button>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="financials">Financials</TabsTrigger>
-            <TabsTrigger value="chart">Advanced Chart</TabsTrigger>
+            <TabsTrigger value="overview">{t("overview")}</TabsTrigger>
+            <TabsTrigger value="financials">{t("financials")}</TabsTrigger>
+            <TabsTrigger value="chart">{t("advanced_chart")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -85,7 +91,7 @@ export default function StockDetail() {
 
                      <Card>
                         <CardHeader>
-                            <CardTitle>About {stock.name}</CardTitle>
+                            <CardTitle>{t("about")} {language === "ar" ? stock.nameAr : stock.name}</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <p className="text-muted-foreground leading-relaxed">
@@ -98,36 +104,36 @@ export default function StockDetail() {
                 <div className="space-y-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Key Statistics</CardTitle>
+                            <CardTitle>{t("key_stats")}</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-4">
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">Market Cap</span>
+                                    <span className="text-muted-foreground">{t("market_cap")}</span>
                                     <span className="font-mono font-medium">{stock.marketCap}</span>
                                 </div>
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">P/E Ratio</span>
+                                    <span className="text-muted-foreground">{t("pe_ratio")}</span>
                                     <span className="font-mono font-medium">{stock.pe}</span>
                                 </div>
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">EPS (TTM)</span>
+                                    <span className="text-muted-foreground">{t("eps")}</span>
                                     <span className="font-mono font-medium">{stock.eps}</span>
                                 </div>
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">Div Yield</span>
+                                    <span className="text-muted-foreground">{t("div_yield")}</span>
                                     <span className="font-mono font-medium">{stock.dividendYield}%</span>
                                 </div>
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">Avg Volume</span>
+                                    <span className="text-muted-foreground">{t("avg_volume")}</span>
                                     <span className="font-mono font-medium">{stock.volume}</span>
                                 </div>
                                 <div className="flex justify-between items-center py-2 border-b">
-                                    <span className="text-muted-foreground">52W High</span>
+                                    <span className="text-muted-foreground">{t("52w_high")}</span>
                                     <span className="font-mono font-medium">{(stock.price * 1.2).toFixed(2)}</span>
                                 </div>
                                  <div className="flex justify-between items-center py-2">
-                                    <span className="text-muted-foreground">52W Low</span>
+                                    <span className="text-muted-foreground">{t("52w_low")}</span>
                                     <span className="font-mono font-medium">{(stock.price * 0.85).toFixed(2)}</span>
                                 </div>
                             </div>
@@ -136,11 +142,11 @@ export default function StockDetail() {
 
                     <Card className="bg-primary/5 border-primary/20">
                         <CardHeader>
-                            <CardTitle className="text-primary">Analyst Rating</CardTitle>
+                            <CardTitle className="text-primary">{t("analyst_rating")}</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="flex items-center gap-4">
-                                <div className="text-3xl font-bold">Buy</div>
+                                <div className="text-3xl font-bold">{t("buy")}</div>
                                 <div className="h-2 flex-1 bg-muted rounded-full overflow-hidden">
                                     <div className="h-full w-[70%] bg-primary"></div>
                                 </div>
@@ -155,7 +161,7 @@ export default function StockDetail() {
           <TabsContent value="financials">
             <Card>
                 <CardHeader>
-                    <CardTitle>Income Statement</CardTitle>
+                    <CardTitle>{t("income_statement")}</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <FinancialsTable data={stock.financials} />
@@ -168,7 +174,7 @@ export default function StockDetail() {
                  <PriceChart 
                     data={stock.history} 
                     color={isPositive ? "hsl(var(--success))" : "hsl(var(--destructive))"} 
-                    title="Interactive Chart"
+                    title={t("advanced_chart")}
                  />
              </div>
           </TabsContent>

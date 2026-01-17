@@ -1,21 +1,24 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, LineChart, PieChart, Newspaper, Settings, Search, Menu } from "lucide-react";
+import { LayoutDashboard, LineChart, PieChart, Newspaper, Settings, Menu, Globe } from "lucide-react";
 import generatedImage from '@assets/generated_images/minimalist_geometric_logo_for_financial_analytics_data.png';
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useLanguage } from "@/lib/LanguageContext";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const NAV_ITEMS = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/" },
-  { icon: LineChart, label: "Market", href: "/market" },
-  { icon: PieChart, label: "Analysis", href: "/analysis" },
-  { icon: Newspaper, label: "News", href: "/news" },
-  { icon: Settings, label: "Settings", href: "/settings" },
+  { icon: LayoutDashboard, label: "dashboard", href: "/" },
+  { icon: LineChart, label: "market", href: "/market" },
+  { icon: PieChart, label: "analysis", href: "/analysis" },
+  { icon: Newspaper, label: "news", href: "/news" },
+  { icon: Settings, label: "settings", href: "/settings" },
 ];
 
 export function Sidebar() {
   const [location] = useLocation();
+  const { t, language, setLanguage, isRtl } = useLanguage();
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-card text-card-foreground">
@@ -40,17 +43,30 @@ export function Sidebar() {
                 )}
               >
                 <item.icon className="h-4 w-4" />
-                {item.label}
+                {t(item.label)}
               </a>
             </Link>
           ))}
         </nav>
       </div>
-      <div className="border-t p-4">
+      <div className="p-4 border-t space-y-4">
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="w-full justify-start gap-2">
+                    <Globe className="h-4 w-4" />
+                    {language === "en" ? "English" : "العربية"}
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[150px]">
+                <DropdownMenuItem onClick={() => setLanguage("en")}>English</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setLanguage("ar")}>العربية</DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="rounded-lg bg-accent/50 p-4 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground mb-1">Pro Plan</p>
-          <p className="mb-3">Get real-time data and advanced charts.</p>
-          <Button size="sm" className="w-full text-xs" variant="default">Upgrade</Button>
+          <p className="font-medium text-foreground mb-1">{t("pro_plan")}</p>
+          <p className="mb-3">{t("pro_desc")}</p>
+          <Button size="sm" className="w-full text-xs" variant="default">{t("upgrade")}</Button>
         </div>
       </div>
     </div>
@@ -59,6 +75,7 @@ export function Sidebar() {
 
 export function MobileSidebar() {
     const [location] = useLocation();
+    const { t, language, setLanguage, isRtl } = useLanguage();
     
     return (
         <Sheet>
@@ -67,7 +84,7 @@ export function MobileSidebar() {
                     <Menu className="h-5 w-5" />
                 </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-64">
+            <SheetContent side={isRtl ? "right" : "left"} className="p-0 w-64">
                 <div className="flex h-full w-full flex-col bg-card text-card-foreground">
                     <div className="flex h-16 items-center border-b px-6">
                         <Link href="/">
@@ -90,11 +107,22 @@ export function MobileSidebar() {
                                 )}
                             >
                                 <item.icon className="h-4 w-4" />
-                                {item.label}
+                                {t(item.label)}
                             </a>
                             </Link>
                         ))}
                         </nav>
+                    </div>
+                    <div className="p-4 border-t">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full justify-start gap-2"
+                            onClick={() => setLanguage(language === "en" ? "ar" : "en")}
+                        >
+                            <Globe className="h-4 w-4" />
+                            {language === "en" ? "English" : "العربية"}
+                        </Button>
                     </div>
                 </div>
             </SheetContent>

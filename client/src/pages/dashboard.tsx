@@ -6,17 +6,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
+import { useLanguage } from "@/lib/LanguageContext";
 
 export default function Dashboard() {
+  const { t, language } = useLanguage();
   const tasi = MARKET_INDICES[0];
-  const tasiHistory = STOCKS[0].history; // Using Aramco history as proxy for market for now
+  const tasiHistory = STOCKS[0].history;
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">Market Overview</h1>
-          <p className="text-muted-foreground">Track the performance of the Saudi Exchange (Tadawul).</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t("market_overview")}</h1>
+          <p className="text-muted-foreground">{t("market_desc")}</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -33,13 +35,13 @@ export default function Dashboard() {
 
         <div className="grid gap-4 md:grid-cols-7">
           <div className="md:col-span-4">
-            <PriceChart data={tasiHistory} title="TASI Index Performance (30 Days)" />
+            <PriceChart data={tasiHistory} title={`TASI ${t("advanced_chart")}`} />
           </div>
           <div className="md:col-span-3">
             <Card className="h-full">
               <CardHeader>
-                <CardTitle>Top Movers</CardTitle>
-                <CardDescription>Highest gaining and losing stocks today</CardDescription>
+                <CardTitle>{t("top_movers")}</CardTitle>
+                <CardDescription>{t("top_movers_desc")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -51,7 +53,7 @@ export default function Dashboard() {
                             {stock.symbol}
                           </div>
                           <div>
-                            <p className="font-medium text-sm">{stock.name}</p>
+                            <p className="font-medium text-sm">{language === "ar" ? stock.nameAr : stock.name}</p>
                             <p className="text-xs text-muted-foreground">{stock.sector}</p>
                           </div>
                         </div>
@@ -74,13 +76,13 @@ export default function Dashboard() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Market Sentiment</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("market_sentiment")}</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">Bullish</div>
+              <div className="text-2xl font-bold">{t("bullish")}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Trading volume up 12% vs 30-day avg
+                {t("volume_up")}
               </p>
               <div className="mt-4 h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <div className="h-full bg-success w-[65%]"></div>
@@ -89,7 +91,7 @@ export default function Dashboard() {
           </Card>
            <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Top Sector</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("top_sector")}</CardTitle>
               <Badge variant="outline">Energy</Badge>
             </CardHeader>
             <CardContent>
@@ -101,17 +103,17 @@ export default function Dashboard() {
           </Card>
            <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Upcoming Earnings</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("upcoming_earnings")}</CardTitle>
               <Badge variant="outline">This Week</Badge>
             </CardHeader>
             <CardContent>
               <div className="space-y-2 mt-2">
                 <div className="flex justify-between text-sm">
-                    <span>Al Rajhi</span>
-                    <span className="text-muted-foreground">Tomorrow</span>
+                    <span>{language === "ar" ? "الراجحي" : "Al Rajhi"}</span>
+                    <span className="text-muted-foreground">{language === "ar" ? "غداً" : "Tomorrow"}</span>
                 </div>
                  <div className="flex justify-between text-sm">
-                    <span>SABIC</span>
+                    <span>{language === "ar" ? "سابك" : "SABIC"}</span>
                     <span className="text-muted-foreground">Thu, Oct 24</span>
                 </div>
               </div>
