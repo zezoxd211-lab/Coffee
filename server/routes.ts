@@ -31,9 +31,10 @@ interface YahooChartResult {
   };
 }
 
-async function fetchFromYahoo(symbol: string, range: string = "1d", interval: string = "1d"): Promise<YahooChartResult | null> {
+async function fetchFromYahoo(symbol: string, range: string = "1d", interval: string = "1d", includeEvents: boolean = false): Promise<YahooChartResult | null> {
   try {
-    const url = `${YAHOO_FINANCE_BASE}/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false`;
+    const eventsParam = includeEvents ? "&events=div,split" : "";
+    const url = `${YAHOO_FINANCE_BASE}/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${eventsParam}`;
     const response = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -49,6 +50,29 @@ async function fetchFromYahoo(symbol: string, range: string = "1d", interval: st
     return data as YahooChartResult;
   } catch (error) {
     console.error(`Error fetching ${symbol} from Yahoo Finance:`, error);
+    return null;
+  }
+}
+
+// Fetch quote summary for fundamentals
+async function fetchQuoteSummary(symbol: string): Promise<any | null> {
+  try {
+    const modules = "summaryProfile,financialData,defaultKeyStatistics,earningsHistory,incomeStatementHistory";
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      }
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const data = await response.json();
+    return data.quoteSummary?.result?.[0] || null;
+  } catch (error) {
+    console.error(`Error fetching quote summary for ${symbol}:`, error);
     return null;
   }
 }
@@ -301,25 +325,46 @@ export async function registerRoutes(
     const days = parseInt(req.query.days as string) || 30;
     const range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : "1y";
     
-    // Fetch historical data
-    const historyData = await fetchFromYahoo(stockInfo.symbol, range, "1d");
+    // Fetch historical data with events (dividends, splits) and fundamentals in parallel
+    const [historyData, eventsData, fundamentalsData] = await Promise.all([
+      fetchFromYahoo(stockInfo.symbol, range, "1d"),
+      fetchFromYahoo(stockInfo.symbol, "1y", "1d", true),
+      fetchQuoteSummary(stockInfo.symbol)
+    ]);
     
     let price = 0;
     let change = 0;
     let changePercent = 0;
     let isMock = true;
-    let history: { date: string; price: number }[] = [];
+    let history: { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[] = [];
+    let totalVolume = 0;
     
     if (historyData && historyData.chart.result && !historyData.chart.error) {
       const result = historyData.chart.result[0];
       const timestamps = result.timestamp || [];
-      const closes = result.indicators.quote[0].close || [];
+      const quote = result.indicators.quote[0];
+      const opens = quote.open || [];
+      const highs = quote.high || [];
+      const lows = quote.low || [];
+      const closes = quote.close || [];
+      const volumes = quote.volume || [];
       
-      // Build history array
-      history = timestamps.map((ts, i) => ({
-        date: new Date(ts * 1000).toISOString().split("T")[0],
-        price: closes[i] ? Number(closes[i].toFixed(2)) : null
-      })).filter(d => d.price !== null) as { date: string; price: number }[];
+      // Build history array with full OHLCV data
+      history = timestamps.map((ts: number, i: number) => {
+        if (closes[i] === null) return null;
+        return {
+          date: new Date(ts * 1000).toISOString().split("T")[0],
+          price: Number(closes[i].toFixed(2)),
+          open: opens[i] ? Number(opens[i].toFixed(2)) : undefined,
+          high: highs[i] ? Number(highs[i].toFixed(2)) : undefined,
+          low: lows[i] ? Number(lows[i].toFixed(2)) : undefined,
+          close: Number(closes[i].toFixed(2)),
+          volume: volumes[i] || 0
+        };
+      }).filter((d: any) => d !== null) as { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[];
+      
+      // Calculate total volume
+      totalVolume = volumes.reduce((sum: number, v: number | null) => sum + (v || 0), 0);
       
       // Calculate change from last two trading days
       const validCloses = closes.filter((c: number | null) => c !== null);
@@ -334,12 +379,12 @@ export async function registerRoutes(
         isMock = false;
       }
     } else {
-      // Use mock data
+      // Use mock data with OHLCV
       const mockData = getMockStockData(symbol, stockInfo);
       price = mockData.price;
       change = mockData.change;
       changePercent = mockData.changePercent;
-      history = generateMockHistory(30, price);
+      history = generateMockOHLCVHistory(days, price);
     }
     
     // Get prices array for technical analysis
@@ -350,6 +395,84 @@ export async function registerRoutes(
     const cashFlowAnalysis = getCashFlowAnalysis(symbol);
     const technicalIndicators = calculateTechnicalIndicators(prices);
     const analystRatings = getAnalystRatings(symbol);
+    
+    // Extract dividends from events data
+    const dividends: { date: string; amount: number }[] = [];
+    const splits: { date: string; ratio: string }[] = [];
+    
+    if (eventsData && eventsData.chart.result?.[0]) {
+      const events = (eventsData.chart.result[0] as any).events;
+      if (events?.dividends) {
+        Object.values(events.dividends).forEach((div: any) => {
+          dividends.push({
+            date: new Date(div.date * 1000).toISOString().split("T")[0],
+            amount: Number(div.amount.toFixed(4))
+          });
+        });
+        dividends.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      if (events?.splits) {
+        Object.values(events.splits).forEach((split: any) => {
+          splits.push({
+            date: new Date(split.date * 1000).toISOString().split("T")[0],
+            ratio: `${split.numerator}:${split.denominator}`
+          });
+        });
+        splits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+    }
+    
+    // Extract real fundamentals from Yahoo Finance quote summary (use raw values for calculations)
+    let realFundamentals: any = null;
+    if (fundamentalsData) {
+      const fd = fundamentalsData.financialData;
+      const ks = fundamentalsData.defaultKeyStatistics;
+      realFundamentals = {
+        // Raw numeric values for calculations
+        revenueRaw: fd?.totalRevenue?.raw || null,
+        revenueGrowthRaw: fd?.revenueGrowth?.raw || null,
+        grossMarginsRaw: fd?.grossMargins?.raw ? fd.grossMargins.raw * 100 : null,
+        operatingMarginsRaw: fd?.operatingMargins?.raw ? fd.operatingMargins.raw * 100 : null,
+        profitMarginsRaw: fd?.profitMargins?.raw ? fd.profitMargins.raw * 100 : null,
+        returnOnEquityRaw: fd?.returnOnEquity?.raw ? fd.returnOnEquity.raw * 100 : null,
+        returnOnAssetsRaw: fd?.returnOnAssets?.raw ? fd.returnOnAssets.raw * 100 : null,
+        ebitdaRaw: fd?.ebitda?.raw || null,
+        freeCashflowRaw: fd?.freeCashflow?.raw || null,
+        targetMeanPriceRaw: fd?.targetMeanPrice?.raw || null,
+        recommendationMean: fd?.recommendationMean?.raw || null,
+        recommendationKey: fd?.recommendationKey || null,
+        betaRaw: ks?.beta?.raw || null,
+        trailingPERaw: ks?.trailingPE?.raw || null,
+        forwardPERaw: ks?.forwardPE?.raw || null,
+        priceToBookRaw: ks?.priceToBook?.raw || null,
+        enterpriseToRevenueRaw: ks?.enterpriseToRevenue?.raw || null,
+        enterpriseToEbitdaRaw: ks?.enterpriseToEbitda?.raw || null,
+        week52HighRaw: ks?.["52WeekHigh"]?.raw || null,
+        week52LowRaw: ks?.["52WeekLow"]?.raw || null,
+        // Formatted strings for display
+        revenue: fd?.totalRevenue?.fmt || "N/A",
+        revenueGrowth: fd?.revenueGrowth?.fmt || "N/A",
+        grossMargins: fd?.grossMargins?.fmt || "N/A",
+        operatingMargins: fd?.operatingMargins?.fmt || "N/A",
+        profitMargins: fd?.profitMargins?.fmt || "N/A",
+        returnOnEquity: fd?.returnOnEquity?.fmt || "N/A",
+        returnOnAssets: fd?.returnOnAssets?.fmt || "N/A",
+        ebitda: fd?.ebitda?.fmt || "N/A",
+        freeCashflow: fd?.freeCashflow?.fmt || "N/A",
+        targetMeanPrice: fd?.targetMeanPrice?.fmt || null,
+        beta: ks?.beta?.fmt || "N/A",
+        trailingPE: ks?.trailingPE?.fmt || "N/A",
+        forwardPE: ks?.forwardPE?.fmt || "N/A",
+        priceToBook: ks?.priceToBook?.fmt || "N/A",
+        enterpriseToRevenue: ks?.enterpriseToRevenue?.fmt || "N/A",
+        enterpriseToEbitda: ks?.enterpriseToEbitda?.fmt || "N/A"
+      };
+    }
+    
+    // Get latest volume from history
+    const latestVolume = history.length > 0 && history[history.length - 1].volume 
+      ? history[history.length - 1].volume 
+      : totalVolume > 0 ? Math.floor(totalVolume / history.length) : 0;
     
     const stock = {
       symbol,
@@ -363,25 +486,30 @@ export async function registerRoutes(
       pe: getPE(symbol),
       eps: getEPS(symbol),
       dividendYield: getDividendYield(symbol),
-      volume: "N/A",
+      volume: latestVolume > 0 ? formatVolume(latestVolume) : "N/A",
       description: getDescription(symbol, stockInfo.name),
       financials: generateMockFinancials(getBaseRevenue(symbol)),
       history,
       isMock,
-      // Extended Analysis
+      // Dividends and Splits from Yahoo Finance
+      dividends: dividends.slice(0, 10),
+      splits: splits.slice(0, 5),
+      // Real Fundamentals from Yahoo Finance
+      fundamentals: realFundamentals,
+      // Extended Analysis (using raw numeric values for calculations)
       analysis: {
         valuation: {
-          pe: getPE(symbol),
-          pb: financialRatios.pb,
+          pe: realFundamentals?.trailingPERaw ?? getPE(symbol),
+          pb: realFundamentals?.priceToBookRaw ?? financialRatios.pb,
           ps: financialRatios.ps,
-          evToEbitda: Number((getPE(symbol) * 0.85).toFixed(1))
+          evToEbitda: realFundamentals?.enterpriseToEbitdaRaw ?? Number((getPE(symbol) * 0.85).toFixed(1))
         },
         profitability: {
-          roe: financialRatios.roe,
-          roa: financialRatios.roa,
-          grossMargin: financialRatios.grossMargin,
-          operatingMargin: financialRatios.operatingMargin,
-          netMargin: financialRatios.netMargin
+          roe: realFundamentals?.returnOnEquityRaw ?? financialRatios.roe,
+          roa: realFundamentals?.returnOnAssetsRaw ?? financialRatios.roa,
+          grossMargin: realFundamentals?.grossMarginsRaw ?? financialRatios.grossMargin,
+          operatingMargin: realFundamentals?.operatingMarginsRaw ?? financialRatios.operatingMargin,
+          netMargin: realFundamentals?.profitMarginsRaw ?? financialRatios.netMargin
         },
         balanceSheet: {
           debtToEquity: financialRatios.debtToEquity,
@@ -390,16 +518,20 @@ export async function registerRoutes(
         },
         cashFlow: cashFlowAnalysis,
         growth: {
-          revenueGrowth: financialRatios.revenueGrowth,
+          revenueGrowth: realFundamentals?.revenueGrowthRaw ? realFundamentals.revenueGrowthRaw * 100 : financialRatios.revenueGrowth,
           earningsGrowth: financialRatios.earningsGrowth
         },
         risk: {
-          beta: financialRatios.beta,
-          week52High: financialRatios.week52High,
-          week52Low: financialRatios.week52Low
+          beta: realFundamentals?.betaRaw ?? financialRatios.beta,
+          week52High: realFundamentals?.week52HighRaw ?? financialRatios.week52High,
+          week52Low: realFundamentals?.week52LowRaw ?? financialRatios.week52Low
         },
         technical: technicalIndicators,
-        analystRatings
+        analystRatings: realFundamentals?.recommendationKey ? {
+          ...analystRatings,
+          recommendation: realFundamentals.recommendationKey,
+          targetPrice: realFundamentals.targetMeanPriceRaw
+        } : analystRatings
       }
     };
     
@@ -905,6 +1037,40 @@ function generateMockHistory(days: number, basePrice: number = 11800): { date: s
     history.push({
       date: date.toISOString().split('T')[0],
       price: Number(price.toFixed(2))
+    });
+  }
+  
+  return history;
+}
+
+function generateMockOHLCVHistory(days: number, basePrice: number = 100): { date: string; price: number; open: number; high: number; low: number; close: number; volume: number }[] {
+  const history = [];
+  let price = basePrice;
+  const now = new Date();
+  
+  for (let i = days; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const dayOfWeek = date.getDay();
+    
+    if (dayOfWeek === 5 || dayOfWeek === 6) continue;
+    
+    const volatility = basePrice * 0.02;
+    const open = Number((price + (Math.random() - 0.5) * volatility).toFixed(2));
+    const close = Number((open + (Math.random() - 0.5) * volatility * 2).toFixed(2));
+    const high = Number((Math.max(open, close) + Math.random() * volatility).toFixed(2));
+    const low = Number((Math.min(open, close) - Math.random() * volatility).toFixed(2));
+    const volume = Math.floor(1000000 + Math.random() * 5000000);
+    
+    price = close;
+    history.push({
+      date: date.toISOString().split('T')[0],
+      price: close,
+      open,
+      high,
+      low,
+      close,
+      volume
     });
   }
   

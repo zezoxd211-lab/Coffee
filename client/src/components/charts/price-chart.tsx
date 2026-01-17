@@ -166,12 +166,22 @@ export function PriceChart({ data, title, color = "hsl(var(--primary))", showTim
                   }}
                 />
                 <YAxis 
+                  yAxisId="price"
                   domain={[domainMin, domainMax]} 
                   tickLine={false} 
                   axisLine={false} 
                   tickMargin={10} 
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
                   tickFormatter={(value) => value.toFixed(1)}
+                  orientation="right"
+                />
+                <YAxis 
+                  yAxisId="volume"
+                  domain={[0, 'auto']} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={false}
+                  hide
                 />
                 <Tooltip 
                   contentStyle={{ 
@@ -182,25 +192,58 @@ export function PriceChart({ data, title, color = "hsl(var(--primary))", showTim
                   }}
                   formatter={(value: number, name: string) => {
                     const labels: Record<string, string> = {
-                      price: "Close",
+                      close: "Close",
+                      open: "Open",
                       high: "High",
-                      low: "Low"
+                      low: "Low",
+                      volume: "Volume"
                     };
+                    if (name === "volume") {
+                      return [value?.toLocaleString(), labels[name] || name];
+                    }
                     return [`${value?.toFixed(2)} SAR`, labels[name] || name];
                   }}
                   labelFormatter={(label) => new Date(label).toLocaleDateString()}
                 />
+                {/* Volume bars at the bottom */}
                 <Bar 
-                  dataKey={(d: any) => [d.low || d.price * 0.99, d.high || d.price * 1.01]} 
+                  yAxisId="volume"
+                  dataKey="volume" 
                   fill="hsl(var(--muted-foreground))"
                   opacity={0.3}
+                  maxBarSize={8}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="price" 
-                  stroke={chartColor}
-                  strokeWidth={2}
-                  dot={false}
+                {/* High-Low range (wick) */}
+                <Bar 
+                  yAxisId="price"
+                  dataKey={(d: any) => d.high && d.low ? [d.low, d.high] : [d.price * 0.99, d.price * 1.01]} 
+                  fill="hsl(var(--muted-foreground))"
+                  opacity={0.6}
+                  maxBarSize={2}
+                />
+                {/* Open-Close body */}
+                <Bar 
+                  yAxisId="price"
+                  dataKey={(d: any) => {
+                    const open = d.open || d.price;
+                    const close = d.close || d.price;
+                    return [Math.min(open, close), Math.max(open, close)];
+                  }}
+                  shape={(props: any) => {
+                    const { x, y, width, height, payload } = props;
+                    const isGreen = (payload.close || payload.price) >= (payload.open || payload.price);
+                    return (
+                      <rect 
+                        x={x} 
+                        y={y} 
+                        width={Math.max(width, 4)} 
+                        height={Math.max(height, 1)} 
+                        fill={isGreen ? "hsl(var(--success))" : "hsl(var(--destructive))"}
+                        rx={1}
+                      />
+                    );
+                  }}
+                  maxBarSize={8}
                 />
               </ComposedChart>
             )}
