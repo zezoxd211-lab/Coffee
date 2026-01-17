@@ -1,9 +1,9 @@
-import aramcoLogo from '@assets/stock_images/saudi_aramco_company_2c5409b7.jpg';
-import alrajhiLogo from '@assets/stock_images/al_rajhi_bank_logo_c_2ec7017d.jpg';
-import sabicLogo from '@assets/stock_images/sabic_chemical_compa_d7d9ecc6.jpg';
-import stcLogo from '@assets/stock_images/stc_saudi_telecom_co_aac68885.jpg';
-import snbLogo from '@assets/stock_images/snb_saudi_national_b_3b31ff25.jpg';
-import alinmaLogo from '@assets/stock_images/alinma_bank_saudi_lo_ed7372b3.jpg';
+import aramcoLogo from '@assets/generated_images/saudi_aramco_official_logo.png';
+import alrajhiLogo from '@assets/generated_images/al_rajhi_bank_official_logo.png';
+import sabicLogo from '@assets/generated_images/sabic_company_official_logo.png';
+import stcLogo from '@assets/generated_images/stc_telecom_official_logo.png';
+import snbLogo from '@assets/generated_images/snb_bank_official_logo.png';
+import alinmaLogo from '@assets/generated_images/alinma_bank_official_logo.png';
 
 export const stockLogos: Record<string, string> = {
   "2222": aramcoLogo,
