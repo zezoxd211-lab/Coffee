@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Star, Download, Share2, Loader2 } from "lucide-react";
+import { ArrowLeft, Star, Download, Share2, Loader2, TrendingUp, TrendingDown, BarChart3, DollarSign, PieChart, Activity, Target } from "lucide-react";
 import { Link } from "wouter";
 import NotFound from "./not-found";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -117,8 +117,9 @@ export default function StockDetail() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="overview">{t("overview")}</TabsTrigger>
+            <TabsTrigger value="analysis" data-testid="tab-analysis">Analysis</TabsTrigger>
             <TabsTrigger value="financials">{t("financials")}</TabsTrigger>
             <TabsTrigger value="chart">{t("advanced_chart")}</TabsTrigger>
           </TabsList>
@@ -198,6 +199,285 @@ export default function StockDetail() {
                 </Card>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="analysis" className="space-y-6">
+            {/* Valuation & Profitability */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Target className="h-5 w-5 text-primary" />
+                    Valuation Ratios
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">P/E Ratio</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-pe">{stock.analysis?.valuation?.pe || stock.pe}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">P/B Ratio</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-pb">{stock.analysis?.valuation?.pb || "N/A"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">P/S Ratio</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-ps">{stock.analysis?.valuation?.ps || "N/A"}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">EV/EBITDA</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-ev">{stock.analysis?.valuation?.evToEbitda || "N/A"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <PieChart className="h-5 w-5 text-success" />
+                    Profitability
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">ROE</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-roe">{stock.analysis?.profitability?.roe || "N/A"}%</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">ROA</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="metric-roa">{stock.analysis?.profitability?.roa || "N/A"}%</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Gross Margin</p>
+                      <p className="text-2xl font-bold font-mono">{stock.analysis?.profitability?.grossMargin || "N/A"}%</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Net Margin</p>
+                      <p className="text-2xl font-bold font-mono">{stock.analysis?.profitability?.netMargin || "N/A"}%</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Balance Sheet & Cash Flow */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <BarChart3 className="h-5 w-5 text-blue-500" />
+                    Balance Sheet
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">Debt/Equity</span>
+                      <span className="font-mono font-medium" data-testid="metric-de">{stock.analysis?.balanceSheet?.debtToEquity || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">Current Ratio</span>
+                      <span className="font-mono font-medium" data-testid="metric-cr">{stock.analysis?.balanceSheet?.currentRatio || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-muted-foreground">Quick Ratio</span>
+                      <span className="font-mono font-medium" data-testid="metric-qr">{stock.analysis?.balanceSheet?.quickRatio || "N/A"}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <DollarSign className="h-5 w-5 text-green-500" />
+                    Cash Flow Analysis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">Operating Cash Flow</span>
+                      <span className="font-mono font-medium" data-testid="metric-cfo">{stock.analysis?.cashFlow?.operatingCashFlow || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">Free Cash Flow</span>
+                      <span className="font-mono font-medium" data-testid="metric-fcf">{stock.analysis?.cashFlow?.freeCashFlow || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">FCF Margin</span>
+                      <span className="font-mono font-medium">{stock.analysis?.cashFlow?.fcfMargin || "N/A"}%</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-muted-foreground">FCF Yield</span>
+                      <span className="font-mono font-medium">{stock.analysis?.cashFlow?.fcfYield || "N/A"}%</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Growth & Risk */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <TrendingUp className="h-5 w-5 text-emerald-500" />
+                    Growth Metrics
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Revenue Growth</p>
+                      <p className={`text-2xl font-bold font-mono ${(stock.analysis?.growth?.revenueGrowth || 0) >= 0 ? 'text-success' : 'text-destructive'}`} data-testid="metric-revgrowth">
+                        {(stock.analysis?.growth?.revenueGrowth || 0) > 0 ? '+' : ''}{stock.analysis?.growth?.revenueGrowth || "N/A"}%
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Earnings Growth</p>
+                      <p className={`text-2xl font-bold font-mono ${(stock.analysis?.growth?.earningsGrowth || 0) >= 0 ? 'text-success' : 'text-destructive'}`} data-testid="metric-earngrowth">
+                        {(stock.analysis?.growth?.earningsGrowth || 0) > 0 ? '+' : ''}{stock.analysis?.growth?.earningsGrowth || "N/A"}%
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Activity className="h-5 w-5 text-orange-500" />
+                    Risk & Volatility
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">Beta</span>
+                      <span className="font-mono font-medium" data-testid="metric-beta">{stock.analysis?.risk?.beta || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-b">
+                      <span className="text-muted-foreground">52W High</span>
+                      <span className="font-mono font-medium">{stock.analysis?.risk?.week52High || (stock.price * 1.2).toFixed(2)} SAR</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-muted-foreground">52W Low</span>
+                      <span className="font-mono font-medium">{stock.analysis?.risk?.week52Low || (stock.price * 0.85).toFixed(2)} SAR</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Technical Indicators */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <BarChart3 className="h-5 w-5 text-purple-500" />
+                  Technical Indicators
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="space-y-1 p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">SMA (20)</p>
+                    <p className="text-lg font-bold font-mono" data-testid="metric-sma20">{stock.analysis?.technical?.sma20 || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1 p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">SMA (50)</p>
+                    <p className="text-lg font-bold font-mono" data-testid="metric-sma50">{stock.analysis?.technical?.sma50 || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1 p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">RSI (14)</p>
+                    <p className={`text-lg font-bold font-mono ${
+                      stock.analysis?.technical?.rsi14 
+                        ? stock.analysis.technical.rsi14 > 70 
+                          ? 'text-destructive' 
+                          : stock.analysis.technical.rsi14 < 30 
+                            ? 'text-success' 
+                            : ''
+                        : ''
+                    }`} data-testid="metric-rsi">{stock.analysis?.technical?.rsi14 || "N/A"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {stock.analysis?.technical?.rsi14 
+                        ? stock.analysis.technical.rsi14 > 70 
+                          ? 'Overbought' 
+                          : stock.analysis.technical.rsi14 < 30 
+                            ? 'Oversold' 
+                            : 'Neutral'
+                        : ''}
+                    </p>
+                  </div>
+                  <div className="space-y-1 p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">MACD</p>
+                    <p className={`text-lg font-bold font-mono ${
+                      stock.analysis?.technical?.macd?.histogram 
+                        ? stock.analysis.technical.macd.histogram > 0 
+                          ? 'text-success' 
+                          : 'text-destructive'
+                        : ''
+                    }`} data-testid="metric-macd">{stock.analysis?.technical?.macd?.macd || "N/A"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Signal: {stock.analysis?.technical?.macd?.signal || "N/A"}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Analyst Ratings */}
+            <Card className="bg-primary/5 border-primary/20">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg text-primary">
+                  <Target className="h-5 w-5" />
+                  Analyst Ratings & Price Target
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div>
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="text-3xl font-bold text-primary" data-testid="metric-consensus">{stock.analysis?.analystRatings?.consensus || "Hold"}</div>
+                      <Badge variant="outline" className="text-lg px-3 py-1">
+                        Target: {stock.analysis?.analystRatings?.targetPrice || stock.price} SAR
+                      </Badge>
+                    </div>
+                    <div className="flex gap-2 h-3 rounded-full overflow-hidden bg-muted">
+                      <div 
+                        className="bg-success transition-all" 
+                        style={{ width: `${((stock.analysis?.analystRatings?.buy || 5) / ((stock.analysis?.analystRatings?.buy || 5) + (stock.analysis?.analystRatings?.hold || 5) + (stock.analysis?.analystRatings?.sell || 2))) * 100}%` }}
+                      />
+                      <div 
+                        className="bg-yellow-500 transition-all" 
+                        style={{ width: `${((stock.analysis?.analystRatings?.hold || 5) / ((stock.analysis?.analystRatings?.buy || 5) + (stock.analysis?.analystRatings?.hold || 5) + (stock.analysis?.analystRatings?.sell || 2))) * 100}%` }}
+                      />
+                      <div 
+                        className="bg-destructive transition-all" 
+                        style={{ width: `${((stock.analysis?.analystRatings?.sell || 2) / ((stock.analysis?.analystRatings?.buy || 5) + (stock.analysis?.analystRatings?.hold || 5) + (stock.analysis?.analystRatings?.sell || 2))) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-success" data-testid="metric-buy">{stock.analysis?.analystRatings?.buy || 5}</p>
+                      <p className="text-sm text-muted-foreground">Buy</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-yellow-500" data-testid="metric-hold">{stock.analysis?.analystRatings?.hold || 5}</p>
+                      <p className="text-sm text-muted-foreground">Hold</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-destructive" data-testid="metric-sell">{stock.analysis?.analystRatings?.sell || 2}</p>
+                      <p className="text-sm text-muted-foreground">Sell</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="financials">

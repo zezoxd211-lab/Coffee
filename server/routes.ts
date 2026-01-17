@@ -338,6 +338,15 @@ export async function registerRoutes(
       history = generateMockHistory(30, price);
     }
     
+    // Get prices array for technical analysis
+    const prices = history.map(h => h.price);
+    
+    // Get extended analysis data
+    const financialRatios = getFinancialRatios(symbol);
+    const cashFlowAnalysis = getCashFlowAnalysis(symbol);
+    const technicalIndicators = calculateTechnicalIndicators(prices);
+    const analystRatings = getAnalystRatings(symbol);
+    
     const stock = {
       symbol,
       name: stockInfo.name,
@@ -354,7 +363,40 @@ export async function registerRoutes(
       description: getDescription(symbol, stockInfo.name),
       financials: generateMockFinancials(getBaseRevenue(symbol)),
       history,
-      isMock
+      isMock,
+      // Extended Analysis
+      analysis: {
+        valuation: {
+          pe: getPE(symbol),
+          pb: financialRatios.pb,
+          ps: financialRatios.ps,
+          evToEbitda: Number((getPE(symbol) * 0.85).toFixed(1))
+        },
+        profitability: {
+          roe: financialRatios.roe,
+          roa: financialRatios.roa,
+          grossMargin: financialRatios.grossMargin,
+          operatingMargin: financialRatios.operatingMargin,
+          netMargin: financialRatios.netMargin
+        },
+        balanceSheet: {
+          debtToEquity: financialRatios.debtToEquity,
+          currentRatio: financialRatios.currentRatio,
+          quickRatio: financialRatios.quickRatio
+        },
+        cashFlow: cashFlowAnalysis,
+        growth: {
+          revenueGrowth: financialRatios.revenueGrowth,
+          earningsGrowth: financialRatios.earningsGrowth
+        },
+        risk: {
+          beta: financialRatios.beta,
+          week52High: financialRatios.week52High,
+          week52Low: financialRatios.week52Low
+        },
+        technical: technicalIndicators,
+        analystRatings
+      }
     };
     
     res.json(stock);
@@ -584,4 +626,158 @@ function generateMockFinancials(baseRevenue: number) {
     { year: "2022", revenue: `${(baseRevenue * 0.88).toFixed(1)}B`, netIncome: `${(baseRevenue * 0.88 * 0.18).toFixed(1)}B`, operatingCashFlow: `${(baseRevenue * 0.88 * 0.22).toFixed(1)}B`, freeCashFlow: `${(baseRevenue * 0.88 * 0.12).toFixed(1)}B`, grossMargin: "42%", netMargin: "18%" },
     { year: "2021", revenue: `${(baseRevenue * 0.8).toFixed(1)}B`, netIncome: `${(baseRevenue * 0.8 * 0.15).toFixed(1)}B`, operatingCashFlow: `${(baseRevenue * 0.8 * 0.2).toFixed(1)}B`, freeCashFlow: `${(baseRevenue * 0.8 * 0.1).toFixed(1)}B`, grossMargin: "40%", netMargin: "15%" },
   ];
+}
+
+// Technical indicators calculation
+function calculateSMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const slice = prices.slice(-period);
+  return Number((slice.reduce((a, b) => a + b, 0) / period).toFixed(2));
+}
+
+function calculateEMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const multiplier = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = (prices[i] - ema) * multiplier + ema;
+  }
+  return Number(ema.toFixed(2));
+}
+
+function calculateRSI(prices: number[], period: number = 14): number | null {
+  if (prices.length < period + 1) return null;
+  
+  let gains = 0;
+  let losses = 0;
+  
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) gains += change;
+    else losses -= change;
+  }
+  
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  
+  for (let i = period + 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) {
+      avgGain = (avgGain * (period - 1) + change) / period;
+      avgLoss = (avgLoss * (period - 1)) / period;
+    } else {
+      avgGain = (avgGain * (period - 1)) / period;
+      avgLoss = (avgLoss * (period - 1) - change) / period;
+    }
+  }
+  
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return Number((100 - (100 / (1 + rs))).toFixed(2));
+}
+
+function calculateMACD(prices: number[]): { macd: number; signal: number; histogram: number } | null {
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  
+  if (ema12 === null || ema26 === null) return null;
+  
+  const macd = Number((ema12 - ema26).toFixed(2));
+  const macdLine: number[] = [];
+  
+  for (let i = 26; i <= prices.length; i++) {
+    const e12 = calculateEMA(prices.slice(0, i), 12);
+    const e26 = calculateEMA(prices.slice(0, i), 26);
+    if (e12 !== null && e26 !== null) {
+      macdLine.push(e12 - e26);
+    }
+  }
+  
+  const signal = macdLine.length >= 9 ? Number((macdLine.slice(-9).reduce((a, b) => a + b, 0) / 9).toFixed(2)) : macd;
+  const histogram = Number((macd - signal).toFixed(2));
+  
+  return { macd, signal, histogram };
+}
+
+function calculateTechnicalIndicators(prices: number[]) {
+  return {
+    sma20: calculateSMA(prices, 20),
+    sma50: calculateSMA(prices, 50),
+    sma200: calculateSMA(prices, 200),
+    ema12: calculateEMA(prices, 12),
+    ema26: calculateEMA(prices, 26),
+    rsi14: calculateRSI(prices, 14),
+    macd: calculateMACD(prices)
+  };
+}
+
+// Extended financial ratios
+function getFinancialRatios(symbol: string) {
+  const ratios: Record<string, {
+    roe: number; roa: number; pb: number; ps: number;
+    debtToEquity: number; currentRatio: number; quickRatio: number;
+    grossMargin: number; operatingMargin: number; netMargin: number;
+    revenueGrowth: number; earningsGrowth: number;
+    beta: number; week52High: number; week52Low: number;
+  }> = {
+    "2222": { roe: 32.5, roa: 18.2, pb: 3.8, ps: 5.2, debtToEquity: 0.12, currentRatio: 1.45, quickRatio: 1.22, grossMargin: 68.5, operatingMargin: 48.2, netMargin: 31.5, revenueGrowth: 8.2, earningsGrowth: 12.5, beta: 0.85, week52High: 35.50, week52Low: 24.20 },
+    "1120": { roe: 22.8, roa: 2.8, pb: 4.2, ps: 8.5, debtToEquity: 0.08, currentRatio: 1.12, quickRatio: 1.08, grossMargin: 72.4, operatingMargin: 58.6, netMargin: 42.8, revenueGrowth: 15.3, earningsGrowth: 18.2, beta: 1.12, week52High: 115.00, week52Low: 78.50 },
+    "2010": { roe: 8.5, roa: 4.2, pb: 1.8, ps: 1.2, debtToEquity: 0.35, currentRatio: 1.85, quickRatio: 1.42, grossMargin: 22.8, operatingMargin: 12.5, netMargin: 8.2, revenueGrowth: -5.2, earningsGrowth: -12.8, beta: 1.28, week52High: 92.00, week52Low: 52.80 },
+    "7010": { roe: 18.5, roa: 8.2, pb: 3.2, ps: 3.8, debtToEquity: 0.45, currentRatio: 0.95, quickRatio: 0.88, grossMargin: 45.2, operatingMargin: 22.8, netMargin: 15.5, revenueGrowth: 12.1, earningsGrowth: 8.5, beta: 0.92, week52High: 48.20, week52Low: 38.50 },
+    "1180": { roe: 15.2, roa: 1.5, pb: 2.1, ps: 4.2, debtToEquity: 0.05, currentRatio: 1.08, quickRatio: 1.05, grossMargin: 68.2, operatingMargin: 52.4, netMargin: 38.5, revenueGrowth: 22.5, earningsGrowth: 28.2, beta: 1.05, week52High: 52.00, week52Low: 35.80 },
+    "1150": { roe: 14.8, roa: 1.8, pb: 2.5, ps: 5.8, debtToEquity: 0.02, currentRatio: 1.15, quickRatio: 1.12, grossMargin: 65.8, operatingMargin: 48.2, netMargin: 35.2, revenueGrowth: 18.2, earningsGrowth: 22.5, beta: 1.18, week52High: 38.00, week52Low: 24.50 },
+    "2030": { roe: 12.5, roa: 6.8, pb: 2.2, ps: 1.8, debtToEquity: 0.28, currentRatio: 1.65, quickRatio: 1.25, grossMargin: 28.5, operatingMargin: 15.2, netMargin: 10.8, revenueGrowth: 5.2, earningsGrowth: 8.5, beta: 1.15, week52High: 62.00, week52Low: 42.50 },
+    "2380": { roe: 4.2, roa: 1.5, pb: 0.8, ps: 0.5, debtToEquity: 0.85, currentRatio: 1.22, quickRatio: 0.95, grossMargin: 8.5, operatingMargin: 2.8, netMargin: 1.2, revenueGrowth: -8.5, earningsGrowth: -25.2, beta: 1.45, week52High: 12.50, week52Low: 5.80 },
+    "2381": { roe: 18.2, roa: 8.5, pb: 4.5, ps: 3.2, debtToEquity: 0.42, currentRatio: 1.55, quickRatio: 1.32, grossMargin: 35.2, operatingMargin: 22.8, netMargin: 16.5, revenueGrowth: 25.2, earningsGrowth: 32.5, beta: 1.25, week52High: 125.00, week52Low: 85.00 },
+    "1010": { roe: 16.5, roa: 1.8, pb: 2.3, ps: 4.5, debtToEquity: 0.06, currentRatio: 1.10, quickRatio: 1.06, grossMargin: 70.2, operatingMargin: 55.8, netMargin: 40.2, revenueGrowth: 12.8, earningsGrowth: 15.2, beta: 1.08, week52High: 32.00, week52Low: 22.50 },
+    "1050": { roe: 12.8, roa: 1.2, pb: 1.4, ps: 3.8, debtToEquity: 0.04, currentRatio: 1.05, quickRatio: 1.02, grossMargin: 62.5, operatingMargin: 48.5, netMargin: 32.8, revenueGrowth: 8.5, earningsGrowth: 10.2, beta: 0.95, week52High: 22.00, week52Low: 15.80 },
+    "2020": { roe: 45.2, roa: 22.5, pb: 4.2, ps: 2.8, debtToEquity: 0.15, currentRatio: 2.25, quickRatio: 1.85, grossMargin: 55.2, operatingMargin: 42.8, netMargin: 38.5, revenueGrowth: -2.5, earningsGrowth: -5.8, beta: 1.02, week52High: 145.00, week52Low: 105.00 },
+    "1211": { roe: 8.8, roa: 4.5, pb: 2.5, ps: 2.8, debtToEquity: 0.48, currentRatio: 1.75, quickRatio: 1.35, grossMargin: 32.5, operatingMargin: 18.2, netMargin: 12.5, revenueGrowth: 15.5, earningsGrowth: 22.8, beta: 1.32, week52High: 85.00, week52Low: 55.00 },
+    "7020": { roe: 5.2, roa: 2.8, pb: 2.8, ps: 1.5, debtToEquity: 0.65, currentRatio: 0.85, quickRatio: 0.78, grossMargin: 42.5, operatingMargin: 15.2, netMargin: 5.8, revenueGrowth: 8.2, earningsGrowth: 125.5, beta: 1.22, week52High: 78.00, week52Low: 52.00 },
+    "7030": { roe: -8.5, roa: -2.2, pb: 1.8, ps: 0.8, debtToEquity: 0.92, currentRatio: 0.72, quickRatio: 0.65, grossMargin: 35.2, operatingMargin: -5.2, netMargin: -8.5, revenueGrowth: 5.2, earningsGrowth: 45.2, beta: 1.35, week52High: 14.50, week52Low: 8.80 },
+    "4300": { roe: 12.5, roa: 3.8, pb: 1.1, ps: 2.2, debtToEquity: 0.75, currentRatio: 1.45, quickRatio: 0.85, grossMargin: 42.8, operatingMargin: 28.5, netMargin: 22.5, revenueGrowth: 28.5, earningsGrowth: 35.2, beta: 1.55, week52High: 22.00, week52Low: 12.50 },
+    "4001": { roe: 15.8, roa: 8.2, pb: 3.5, ps: 0.8, debtToEquity: 0.25, currentRatio: 1.35, quickRatio: 0.92, grossMargin: 25.2, operatingMargin: 8.5, netMargin: 5.2, revenueGrowth: 12.5, earningsGrowth: 18.2, beta: 0.88, week52High: 8.50, week52Low: 5.20 },
+    "4030": { roe: 12.2, roa: 5.5, pb: 1.8, ps: 1.5, debtToEquity: 0.55, currentRatio: 1.25, quickRatio: 1.08, grossMargin: 28.5, operatingMargin: 15.8, netMargin: 10.5, revenueGrowth: 18.2, earningsGrowth: 25.5, beta: 1.18, week52High: 35.00, week52Low: 24.50 }
+  };
+  
+  return ratios[symbol] || {
+    roe: 10.0, roa: 5.0, pb: 1.5, ps: 1.0, debtToEquity: 0.3, currentRatio: 1.2, quickRatio: 1.0,
+    grossMargin: 30.0, operatingMargin: 15.0, netMargin: 10.0, revenueGrowth: 5.0, earningsGrowth: 5.0,
+    beta: 1.0, week52High: 0, week52Low: 0
+  };
+}
+
+// Cash flow analysis
+function getCashFlowAnalysis(symbol: string) {
+  const baseRevenue = getBaseRevenue(symbol);
+  const marketCapStr = getMarketCap(symbol);
+  const marketCapNum = parseFloat(marketCapStr.replace(/[TB]/g, '')) * (marketCapStr.includes('T') ? 1000 : 1);
+  
+  const cfo = baseRevenue * 0.28;
+  const fcf = baseRevenue * 0.18;
+  const capex = cfo - fcf;
+  
+  return {
+    operatingCashFlow: `${cfo.toFixed(1)}B`,
+    freeCashFlow: `${fcf.toFixed(1)}B`,
+    capitalExpenditure: `${capex.toFixed(1)}B`,
+    cfoMargin: Number(((cfo / baseRevenue) * 100).toFixed(1)),
+    fcfMargin: Number(((fcf / baseRevenue) * 100).toFixed(1)),
+    fcfYield: Number(((fcf / marketCapNum) * 100).toFixed(2)),
+    cashConversionRatio: Number(((fcf / (baseRevenue * 0.22)) * 100).toFixed(1))
+  };
+}
+
+// Analyst ratings
+function getAnalystRatings(symbol: string) {
+  const ratings: Record<string, { buy: number; hold: number; sell: number; targetPrice: number; consensus: string }> = {
+    "2222": { buy: 18, hold: 8, sell: 2, targetPrice: 32.50, consensus: "Buy" },
+    "1120": { buy: 15, hold: 5, sell: 1, targetPrice: 115.00, consensus: "Strong Buy" },
+    "2010": { buy: 8, hold: 12, sell: 5, targetPrice: 68.00, consensus: "Hold" },
+    "7010": { buy: 12, hold: 6, sell: 2, targetPrice: 48.00, consensus: "Buy" },
+    "1180": { buy: 14, hold: 4, sell: 1, targetPrice: 48.50, consensus: "Strong Buy" },
+    "1150": { buy: 10, hold: 6, sell: 2, targetPrice: 32.00, consensus: "Buy" }
+  };
+  
+  return ratings[symbol] || { buy: 5, hold: 5, sell: 2, targetPrice: 0, consensus: "Hold" };
 }

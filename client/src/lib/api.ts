@@ -31,6 +31,61 @@ export interface FinancialData {
   netMargin: string;
 }
 
+export interface StockAnalysis {
+  valuation?: {
+    pe: number;
+    pb: number;
+    ps: number;
+    evToEbitda: number;
+  };
+  profitability?: {
+    roe: number;
+    roa: number;
+    grossMargin: number;
+    operatingMargin: number;
+    netMargin: number;
+  };
+  balanceSheet?: {
+    debtToEquity: number;
+    currentRatio: number;
+    quickRatio: number;
+  };
+  cashFlow?: {
+    operatingCashFlow: string;
+    freeCashFlow: string;
+    capitalExpenditure: string;
+    cfoMargin: number;
+    fcfMargin: number;
+    fcfYield: number;
+    cashConversionRatio: number;
+  };
+  growth?: {
+    revenueGrowth: number;
+    earningsGrowth: number;
+  };
+  risk?: {
+    beta: number;
+    week52High: number;
+    week52Low: number;
+  };
+  technical?: {
+    sma20: number | null;
+    sma50: number | null;
+    sma200: number | null;
+    ema12: number | null;
+    ema26: number | null;
+    rsi14: number | null;
+    macd: { macd: number; signal: number; histogram: number } | null;
+  };
+  analystRatings?: {
+    buy: number;
+    hold: number;
+    sell: number;
+    targetPrice: number;
+    consensus: string;
+  };
+}
+
 export interface Stock {
   symbol: string;
   name: string;
@@ -47,6 +102,7 @@ export interface Stock {
   description?: string;
   history?: { date: string; price: number }[];
   financials?: FinancialData[];
+  analysis?: StockAnalysis;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
