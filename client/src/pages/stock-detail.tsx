@@ -12,6 +12,7 @@ import { Link } from "wouter";
 import NotFound from "./not-found";
 import { useLanguage } from "@/lib/LanguageContext";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getStockLogo } from "@/lib/stock-logos";
 
 export default function StockDetail() {
   const [match, params] = useRoute("/stock/:symbol");
@@ -71,9 +72,20 @@ export default function StockDetail() {
 
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold tracking-tight">{language === "ar" ? stock.nameAr : stock.name}</h1>
-              <Badge variant="outline" className="text-lg py-1 px-3 font-mono">{stock.symbol}</Badge>
+            <div className="flex items-center gap-4">
+              {getStockLogo(stock.symbol) ? (
+                <img src={getStockLogo(stock.symbol)!} alt={stock.name} className="h-16 w-16 rounded-lg object-cover" />
+              ) : (
+                <div className="h-16 w-16 rounded-lg bg-accent flex items-center justify-center font-bold text-xl font-mono">
+                  {stock.symbol}
+                </div>
+              )}
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-4xl font-bold tracking-tight">{language === "ar" ? stock.nameAr : stock.name}</h1>
+                  <Badge variant="outline" className="text-lg py-1 px-3 font-mono">{stock.symbol}</Badge>
+                </div>
+              </div>
             </div>
             <p className="text-xl text-muted-foreground font-arabic">{language === "ar" ? stock.name : stock.nameAr}</p>
             <div className="flex items-center gap-2 mt-2">

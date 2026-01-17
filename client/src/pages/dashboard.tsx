@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { ArrowUpRight, ArrowDownRight, TrendingUp, Info, Loader2, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
+import { getStockLogo } from "@/lib/stock-logos";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -131,12 +132,18 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {stocks?.map((stock) => (
-                      <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors">
+                    {stocks?.map((stock) => {
+                      const logo = getStockLogo(stock.symbol);
+                      return (
+                      <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors" data-testid={`stock-link-${stock.symbol}`}>
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center font-bold text-xs font-mono">
-                            {stock.symbol}
-                          </div>
+                          {logo ? (
+                            <img src={logo} alt={stock.name} className="h-10 w-10 rounded-full object-cover" />
+                          ) : (
+                            <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center font-bold text-xs font-mono">
+                              {stock.symbol}
+                            </div>
+                          )}
                           <div>
                             <p className="font-medium text-sm">{language === "ar" ? stock.nameAr : stock.name}</p>
                             <p className="text-xs text-muted-foreground">{stock.sector}</p>
@@ -150,7 +157,7 @@ export default function Dashboard() {
                           </p>
                         </div>
                       </Link>
-                    ))}
+                    );})}
                   </div>
                 )}
               </CardContent>
