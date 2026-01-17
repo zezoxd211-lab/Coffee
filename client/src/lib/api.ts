@@ -146,10 +146,10 @@ export function useStocks() {
   });
 }
 
-export function useStock(symbol: string) {
+export function useStock(symbol: string, days: number = 30) {
   return useQuery<Stock>({
-    queryKey: ["stock", symbol],
-    queryFn: () => fetchJson(`/stocks/${symbol}`),
+    queryKey: ["stock", symbol, days],
+    queryFn: () => fetchJson(`/stocks/${symbol}?days=${days}`),
     enabled: !!symbol,
     staleTime: 60000,
   });
@@ -170,6 +170,128 @@ export function useMarketNews() {
   return useQuery<MarketNews[]>({
     queryKey: ["market", "news"],
     queryFn: () => fetchJson("/market/news"),
-    staleTime: 300000, // 5 minutes
+    staleTime: 300000,
+  });
+}
+
+export interface MarketMover {
+  symbol: string;
+  name: string;
+  nameAr: string;
+  sector: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+}
+
+export interface MarketMovers {
+  gainers: MarketMover[];
+  losers: MarketMover[];
+  volumeLeaders: MarketMover[];
+}
+
+export function useMarketMovers() {
+  return useQuery<MarketMovers>({
+    queryKey: ["market", "movers"],
+    queryFn: () => fetchJson("/market/movers"),
+    staleTime: 60000,
+  });
+}
+
+export interface SectorPerformance {
+  name: string;
+  changePercent: number;
+  marketCap: number;
+  stockCount: number;
+}
+
+export function useSectorPerformance() {
+  return useQuery<SectorPerformance[]>({
+    queryKey: ["market", "sectors"],
+    queryFn: () => fetchJson("/market/sectors"),
+    staleTime: 60000,
+  });
+}
+
+export interface Commodity {
+  name: string;
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  isMock: boolean;
+}
+
+export function useCommodities() {
+  return useQuery<Commodity[]>({
+    queryKey: ["market", "commodities"],
+    queryFn: () => fetchJson("/market/commodities"),
+    staleTime: 60000,
+  });
+}
+
+export interface MarketBreadth {
+  advances: number;
+  declines: number;
+  unchanged: number;
+  advanceDeclineRatio: number;
+  upVolume: string;
+  downVolume: string;
+  volumeRatio: number;
+  total: number;
+}
+
+export function useMarketBreadth() {
+  return useQuery<MarketBreadth>({
+    queryKey: ["market", "breadth"],
+    queryFn: () => fetchJson("/market/breadth"),
+    staleTime: 60000,
+  });
+}
+
+export function useWatchlist() {
+  return useQuery<string[]>({
+    queryKey: ["watchlist"],
+    queryFn: () => fetchJson("/watchlist"),
+    staleTime: 30000,
+  });
+}
+
+export async function addToWatchlist(symbol: string): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/watchlist/${symbol}`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function removeFromWatchlist(symbol: string): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/watchlist/${symbol}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+
+export interface StockPeer {
+  symbol: string;
+  name: string;
+  nameAr: string;
+  sector: string;
+  price: number;
+  changePercent: number;
+  pe: number;
+  marketCap: string;
+  roe: number;
+  roa: number;
+  debtToEquity: number;
+  netMargin: number;
+}
+
+export function useStockPeers(symbol: string) {
+  return useQuery<StockPeer[]>({
+    queryKey: ["stock", symbol, "peers"],
+    queryFn: () => fetchJson(`/stocks/${symbol}/peers`),
+    enabled: !!symbol,
+    staleTime: 60000,
   });
 }

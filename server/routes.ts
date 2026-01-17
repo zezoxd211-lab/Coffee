@@ -297,8 +297,12 @@ export async function registerRoutes(
       return;
     }
     
-    // Fetch historical data (1 month for chart, also use for price/change)
-    const historyData = await fetchFromYahoo(stockInfo.symbol, "1mo", "1d");
+    // Parse days parameter for historical data
+    const days = parseInt(req.query.days as string) || 30;
+    const range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : "1y";
+    
+    // Fetch historical data
+    const historyData = await fetchFromYahoo(stockInfo.symbol, range, "1d");
     
     let price = 0;
     let change = 0;
@@ -402,6 +406,197 @@ export async function registerRoutes(
     res.json(stock);
   });
 
+  // Market movers endpoint (top gainers, losers, volume)
+  app.get("/api/market/movers", async (req: Request, res: Response) => {
+    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      
+      if (data && data.chart.result && !data.chart.error) {
+        const result = data.chart.result[0];
+        const quoteData = result.indicators?.quote?.[0];
+        const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
+        const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
+        
+        if (closes.length >= 2) {
+          const currentPrice = closes[closes.length - 1];
+          const previousClose = closes[closes.length - 2];
+          const change = currentPrice - previousClose;
+          const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+          const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
+          
+          return {
+            symbol: id,
+            name: info.name,
+            nameAr: info.nameAr,
+            sector: info.sector,
+            price: Number(currentPrice.toFixed(2)),
+            change: Number(change.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            volume
+          };
+        }
+      }
+      
+      return {
+        symbol: id,
+        name: info.name,
+        nameAr: info.nameAr,
+        sector: info.sector,
+        price: getMockStockData(id, info).price,
+        change: getMockStockData(id, info).change,
+        changePercent: getMockStockData(id, info).changePercent,
+        volume: Math.floor(Math.random() * 5000000)
+      };
+    });
+    
+    const stocks = await Promise.all(stockPromises);
+    
+    const gainers = [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 5);
+    const losers = [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
+    const volumeLeaders = [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 5);
+    
+    res.json({ gainers, losers, volumeLeaders });
+  });
+
+  // Sector performance heatmap
+  app.get("/api/market/sectors", async (req: Request, res: Response) => {
+    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      
+      if (data && data.chart.result && !data.chart.error) {
+        const result = data.chart.result[0];
+        const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
+        
+        if (closes.length >= 2) {
+          const currentPrice = closes[closes.length - 1];
+          const previousClose = closes[closes.length - 2];
+          const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
+          
+          return { sector: info.sector, symbol: id, changePercent: Number(changePercent.toFixed(2)), marketCap: getMarketCap(id) };
+        }
+      }
+      
+      return { sector: info.sector, symbol: id, changePercent: (Math.random() - 0.5) * 4, marketCap: getMarketCap(id) };
+    });
+    
+    const stocks = await Promise.all(stockPromises);
+    
+    // Group by sector
+    const sectorMap = new Map<string, { totalChange: number; count: number; marketCap: number }>();
+    stocks.forEach(stock => {
+      const existing = sectorMap.get(stock.sector) || { totalChange: 0, count: 0, marketCap: 0 };
+      const capValue = parseFloat(stock.marketCap.replace(/[TB]/g, '')) * (stock.marketCap.includes('T') ? 1000 : 1);
+      sectorMap.set(stock.sector, {
+        totalChange: existing.totalChange + stock.changePercent,
+        count: existing.count + 1,
+        marketCap: existing.marketCap + capValue
+      });
+    });
+    
+    const sectors = Array.from(sectorMap.entries()).map(([name, data]) => ({
+      name,
+      changePercent: Number((data.totalChange / data.count).toFixed(2)),
+      marketCap: data.marketCap,
+      stockCount: data.count
+    })).sort((a, b) => b.marketCap - a.marketCap);
+    
+    res.json(sectors);
+  });
+
+  // FX and Commodities
+  app.get("/api/market/commodities", async (req: Request, res: Response) => {
+    const symbols = {
+      "USD/SAR": "SAR=X",
+      "Brent Crude": "BZ=F",
+      "WTI Crude": "CL=F",
+      "Gold": "GC=F",
+      "Silver": "SI=F"
+    };
+    
+    const results = await Promise.all(
+      Object.entries(symbols).map(async ([name, symbol]) => {
+        const data = await fetchFromYahoo(symbol, "5d", "1d");
+        
+        if (data && data.chart.result && !data.chart.error) {
+          const result = data.chart.result[0];
+          const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
+          
+          if (closes.length >= 2) {
+            const price = closes[closes.length - 1];
+            const prevPrice = closes[closes.length - 2];
+            const change = price - prevPrice;
+            const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
+            
+            return {
+              name,
+              symbol,
+              price: Number(price.toFixed(2)),
+              change: Number(change.toFixed(3)),
+              changePercent: Number(changePercent.toFixed(2)),
+              isMock: false
+            };
+          }
+        }
+        
+        // Mock data fallback
+        const mockPrices: Record<string, number> = {
+          "USD/SAR": 3.75, "Brent Crude": 82.45, "WTI Crude": 78.32, "Gold": 2045.50, "Silver": 23.85
+        };
+        return {
+          name,
+          symbol,
+          price: mockPrices[name] || 0,
+          change: (Math.random() - 0.5) * 2,
+          changePercent: (Math.random() - 0.5) * 2,
+          isMock: true
+        };
+      })
+    );
+    
+    res.json(results);
+  });
+
+  // Market breadth indicators
+  app.get("/api/market/breadth", async (req: Request, res: Response) => {
+    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      
+      if (data && data.chart.result && !data.chart.error) {
+        const result = data.chart.result[0];
+        const quoteData = result.indicators?.quote?.[0];
+        const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
+        const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
+        
+        if (closes.length >= 2) {
+          const change = closes[closes.length - 1] - closes[closes.length - 2];
+          const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
+          return { change, volume };
+        }
+      }
+      
+      return { change: (Math.random() - 0.5) * 2, volume: Math.floor(Math.random() * 5000000) };
+    });
+    
+    const stocks = await Promise.all(stockPromises);
+    
+    const advances = stocks.filter(s => s.change > 0).length;
+    const declines = stocks.filter(s => s.change < 0).length;
+    const unchanged = stocks.filter(s => s.change === 0).length;
+    const upVolume = stocks.filter(s => s.change > 0).reduce((sum, s) => sum + s.volume, 0);
+    const downVolume = stocks.filter(s => s.change < 0).reduce((sum, s) => sum + s.volume, 0);
+    
+    res.json({
+      advances,
+      declines,
+      unchanged,
+      advanceDeclineRatio: declines > 0 ? Number((advances / declines).toFixed(2)) : advances,
+      upVolume: formatVolume(upVolume),
+      downVolume: formatVolume(downVolume),
+      volumeRatio: downVolume > 0 ? Number((upVolume / downVolume).toFixed(2)) : 0,
+      total: stocks.length
+    });
+  });
+
   // Market news endpoint
   app.get("/api/market/news", async (req: Request, res: Response) => {
     const news = [
@@ -488,6 +683,103 @@ export async function registerRoutes(
     ];
     
     res.json(news);
+  });
+
+  // Watchlist endpoints
+  app.get("/api/watchlist", async (req: Request, res: Response) => {
+    try {
+      const items = await storage.getWatchlist();
+      res.json(items.map(item => item.symbol));
+    } catch (error) {
+      console.error("Error fetching watchlist:", error);
+      res.json([]);
+    }
+  });
+
+  app.post("/api/watchlist/:symbol", async (req: Request, res: Response) => {
+    const symbol = String(req.params.symbol);
+    try {
+      const isAlreadyInWatchlist = await storage.isInWatchlist(symbol);
+      if (isAlreadyInWatchlist) {
+        res.json({ success: true, message: "Already in watchlist" });
+        return;
+      }
+      await storage.addToWatchlist({ symbol });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error adding to watchlist:", error);
+      res.status(500).json({ success: false, error: "Failed to add to watchlist" });
+    }
+  });
+
+  app.delete("/api/watchlist/:symbol", async (req: Request, res: Response) => {
+    const symbol = String(req.params.symbol);
+    try {
+      await storage.removeFromWatchlist(symbol);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing from watchlist:", error);
+      res.status(500).json({ success: false, error: "Failed to remove from watchlist" });
+    }
+  });
+
+  // Peer comparison endpoint
+  app.get("/api/stocks/:symbol/peers", async (req: Request, res: Response) => {
+    const symbol = String(req.params.symbol);
+    const stockInfo = STOCK_SYMBOLS[symbol];
+    
+    if (!stockInfo) {
+      res.status(404).json({ error: "Stock not found" });
+      return;
+    }
+    
+    // Find peers in the same sector
+    const sectorPeers = Object.entries(STOCK_SYMBOLS)
+      .filter(([id, info]) => info.sector === stockInfo.sector && id !== symbol)
+      .slice(0, 5);
+    
+    const peerPromises = sectorPeers.map(async ([id, info]) => {
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      
+      if (data && data.chart.result && !data.chart.error) {
+        const result = data.chart.result[0];
+        const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
+        
+        if (closes.length >= 2) {
+          const price = closes[closes.length - 1];
+          const prevPrice = closes[closes.length - 2];
+          const changePercent = prevPrice > 0 ? ((price - prevPrice) / prevPrice) * 100 : 0;
+          
+          return {
+            symbol: id,
+            name: info.name,
+            nameAr: info.nameAr,
+            sector: info.sector,
+            price: Number(price.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            pe: getPE(id),
+            marketCap: getMarketCap(id),
+            ...getFinancialRatios(id)
+          };
+        }
+      }
+      
+      const mockData = getMockStockData(id, info);
+      return {
+        symbol: id,
+        name: info.name,
+        nameAr: info.nameAr,
+        sector: info.sector,
+        price: mockData.price,
+        changePercent: mockData.changePercent,
+        pe: getPE(id),
+        marketCap: getMarketCap(id),
+        ...getFinancialRatios(id)
+      };
+    });
+    
+    const peers = await Promise.all(peerPromises);
+    res.json(peers);
   });
 
   return httpServer;

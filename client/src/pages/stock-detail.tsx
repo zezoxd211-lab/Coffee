@@ -1,24 +1,60 @@
 import { useRoute } from "wouter";
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { useStock } from "@/lib/api";
+import { useStock, useWatchlist, useStockPeers, addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import { PriceChart } from "@/components/charts/price-chart";
 import { FinancialsTable } from "@/components/dashboard/FinancialsTable";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Star, Download, Share2, Loader2, TrendingUp, TrendingDown, BarChart3, DollarSign, PieChart, Activity, Target } from "lucide-react";
+import { ArrowLeft, Star, StarOff, Download, Share2, Loader2, TrendingUp, TrendingDown, BarChart3, DollarSign, PieChart, Activity, Target, Users, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Link } from "wouter";
 import NotFound from "./not-found";
 import { useLanguage } from "@/lib/LanguageContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getStockLogo } from "@/lib/stock-logos";
+import { useQueryClient } from "@tanstack/react-query";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+
+const TIMEFRAME_DAYS: Record<string, number> = {
+  "1W": 7,
+  "1M": 30,
+  "3M": 90,
+  "6M": 180,
+  "1Y": 365
+};
 
 export default function StockDetail() {
   const [match, params] = useRoute("/stock/:symbol");
   const { t, language, isRtl } = useLanguage();
+  const queryClient = useQueryClient();
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
   
-  const { data: stock, isLoading, error } = useStock(params?.symbol || "");
+  const symbol = params?.symbol || "";
+  const days = TIMEFRAME_DAYS[selectedTimeframe] || 30;
+  const { data: stock, isLoading, error } = useStock(symbol, days);
+  const { data: watchlist } = useWatchlist();
+  const { data: peers, isLoading: peersLoading } = useStockPeers(symbol);
+  
+  const isInWatchlist = watchlist?.includes(symbol);
+  
+  const handleWatchlistToggle = async () => {
+    setWatchlistLoading(true);
+    try {
+      if (isInWatchlist) {
+        await removeFromWatchlist(symbol);
+      } else {
+        await addToWatchlist(symbol);
+      }
+      queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+    } catch (error) {
+      console.error("Watchlist error:", error);
+    } finally {
+      setWatchlistLoading(false);
+    }
+  };
   
   if (!match) return <NotFound />;
 
@@ -111,17 +147,34 @@ export default function StockDetail() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2"><Star className="h-4 w-4" /> {t("watch")}</Button>
-          <Button variant="outline" size="sm" className="gap-2"><Download className="h-4 w-4" /> {t("export")}</Button>
-          <Button variant="outline" size="sm" className="gap-2"><Share2 className="h-4 w-4" /> {t("share")}</Button>
+          <Button 
+            variant={isInWatchlist ? "default" : "outline"} 
+            size="sm" 
+            className="gap-2"
+            onClick={handleWatchlistToggle}
+            disabled={watchlistLoading}
+            data-testid="btn-watchlist"
+          >
+            {watchlistLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isInWatchlist ? (
+              <StarOff className="h-4 w-4" />
+            ) : (
+              <Star className="h-4 w-4" />
+            )}
+            {isInWatchlist ? (language === "ar" ? "إزالة من المراقبة" : "Remove") : t("watch")}
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" data-testid="btn-export"><Download className="h-4 w-4" /> {t("export")}</Button>
+          <Button variant="outline" size="sm" className="gap-2" data-testid="btn-share"><Share2 className="h-4 w-4" /> {t("share")}</Button>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList className="flex-wrap">
-            <TabsTrigger value="overview">{t("overview")}</TabsTrigger>
-            <TabsTrigger value="analysis" data-testid="tab-analysis">Analysis</TabsTrigger>
-            <TabsTrigger value="financials">{t("financials")}</TabsTrigger>
-            <TabsTrigger value="chart">{t("advanced_chart")}</TabsTrigger>
+            <TabsTrigger value="overview" data-testid="tab-overview">{t("overview")}</TabsTrigger>
+            <TabsTrigger value="analysis" data-testid="tab-analysis">{language === "ar" ? "التحليل" : "Analysis"}</TabsTrigger>
+            <TabsTrigger value="peers" data-testid="tab-peers">{language === "ar" ? "المنافسون" : "Peers"}</TabsTrigger>
+            <TabsTrigger value="financials" data-testid="tab-financials">{t("financials")}</TabsTrigger>
+            <TabsTrigger value="chart" data-testid="tab-chart">{t("advanced_chart")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -480,6 +533,85 @@ export default function StockDetail() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="peers">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  {language === "ar" ? "مقارنة الشركات المنافسة" : "Peer Comparison"}
+                </CardTitle>
+                <CardDescription>
+                  {language === "ar" ? `الشركات الأخرى في قطاع ${stock.sector}` : `Other companies in the ${stock.sector} sector`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {peersLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={i} className="h-12 w-full" />
+                    ))}
+                  </div>
+                ) : peers && peers.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{language === "ar" ? "الشركة" : "Company"}</TableHead>
+                          <TableHead className="text-right">{language === "ar" ? "السعر" : "Price"}</TableHead>
+                          <TableHead className="text-right">{language === "ar" ? "التغير" : "Change"}</TableHead>
+                          <TableHead className="text-right">P/E</TableHead>
+                          <TableHead className="text-right">ROE</TableHead>
+                          <TableHead className="text-right">{language === "ar" ? "الديون/الملكية" : "D/E"}</TableHead>
+                          <TableHead className="text-right">{language === "ar" ? "هامش صافي" : "Net Margin"}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow className="bg-primary/5">
+                          <TableCell>
+                            <Link href={`/stock/${symbol}`} className="font-medium hover:underline">
+                              {language === "ar" ? stock.nameAr : stock.name}
+                              <Badge variant="outline" className="ml-2 text-xs">{language === "ar" ? "الحالي" : "Current"}</Badge>
+                            </Link>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{stock.price.toFixed(2)}</TableCell>
+                          <TableCell className={`text-right ${stock.changePercent >= 0 ? 'text-success' : 'text-destructive'}`}>
+                            {stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%
+                          </TableCell>
+                          <TableCell className="text-right">{stock.pe}</TableCell>
+                          <TableCell className="text-right">{stock.analysis?.profitability?.roe?.toFixed(1) || 'N/A'}%</TableCell>
+                          <TableCell className="text-right">{stock.analysis?.balanceSheet?.debtToEquity?.toFixed(2) || 'N/A'}</TableCell>
+                          <TableCell className="text-right">{stock.analysis?.profitability?.netMargin?.toFixed(1) || 'N/A'}%</TableCell>
+                        </TableRow>
+                        {peers.map((peer) => (
+                          <TableRow key={peer.symbol} data-testid={`peer-row-${peer.symbol}`}>
+                            <TableCell>
+                              <Link href={`/stock/${peer.symbol}`} className="font-medium hover:underline">
+                                {language === "ar" ? peer.nameAr : peer.name}
+                              </Link>
+                            </TableCell>
+                            <TableCell className="text-right font-mono">{peer.price.toFixed(2)}</TableCell>
+                            <TableCell className={`text-right flex items-center justify-end gap-1 ${peer.changePercent >= 0 ? 'text-success' : 'text-destructive'}`}>
+                              {peer.changePercent >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                              {peer.changePercent >= 0 ? '+' : ''}{peer.changePercent.toFixed(2)}%
+                            </TableCell>
+                            <TableCell className="text-right">{peer.pe}</TableCell>
+                            <TableCell className="text-right">{peer.roe?.toFixed(1) || 'N/A'}%</TableCell>
+                            <TableCell className="text-right">{peer.debtToEquity?.toFixed(2) || 'N/A'}</TableCell>
+                            <TableCell className="text-right">{peer.netMargin?.toFixed(1) || 'N/A'}%</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {language === "ar" ? "لا توجد شركات منافسة في نفس القطاع" : "No peer companies found in this sector"}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="financials">
             <Card>
               <CardHeader>
@@ -497,6 +629,9 @@ export default function StockDetail() {
                 data={stock.history || []} 
                 color={isPositive ? "hsl(var(--success))" : "hsl(var(--destructive))"} 
                 title={t("advanced_chart")}
+                showTimeframes={true}
+                selectedTimeframe={selectedTimeframe}
+                onTimeframeChange={setSelectedTimeframe}
               />
             </div>
           </TabsContent>
