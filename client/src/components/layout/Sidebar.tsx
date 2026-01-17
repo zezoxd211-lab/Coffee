@@ -23,28 +23,26 @@ export function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col border-r bg-card text-card-foreground">
       <div className="flex h-16 items-center border-b px-6">
-        <Link href="/">
-          <a className="flex items-center gap-2 font-bold text-lg tracking-tight">
-            <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
-            <span>Tadawul Insight</span>
-          </a>
+        <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight">
+          <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
+          <span>Tadawul Insight</span>
         </Link>
       </div>
       <div className="flex-1 overflow-y-auto py-4">
         <nav className="grid gap-1 px-2">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.href} href={item.href}>
-              <a
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
-                  location === item.href || (item.href !== "/" && location.startsWith(item.href))
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {t(item.label)}
-              </a>
+            <Link 
+              key={item.href} 
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                location === item.href || (item.href !== "/" && location.startsWith(item.href))
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground"
+              )}
+            >
+              <item.icon className="h-4 w-4" />
+              {t(item.label)}
             </Link>
           ))}
         </nav>
@@ -87,28 +85,26 @@ export function MobileSidebar() {
             <SheetContent side={isRtl ? "right" : "left"} className="p-0 w-64">
                 <div className="flex h-full w-full flex-col bg-card text-card-foreground">
                     <div className="flex h-16 items-center border-b px-6">
-                        <Link href="/">
-                        <a className="flex items-center gap-2 font-bold text-lg tracking-tight">
+                        <Link href="/" className="flex items-center gap-2 font-bold text-lg tracking-tight">
                             <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
                             <span>Tadawul Insight</span>
-                        </a>
                         </Link>
                     </div>
                     <div className="flex-1 overflow-y-auto py-4">
                         <nav className="grid gap-1 px-2">
                         {NAV_ITEMS.map((item) => (
-                            <Link key={item.href} href={item.href}>
-                            <a
-                                className={cn(
+                            <Link 
+                              key={item.href} 
+                              href={item.href}
+                              className={cn(
                                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
                                 location === item.href || (item.href !== "/" && location.startsWith(item.href))
-                                    ? "bg-accent text-accent-foreground"
-                                    : "text-muted-foreground"
-                                )}
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground"
+                              )}
                             >
-                                <item.icon className="h-4 w-4" />
-                                {t(item.label)}
-                            </a>
+                              <item.icon className="h-4 w-4" />
+                              {t(item.label)}
                             </Link>
                         ))}
                         </nav>

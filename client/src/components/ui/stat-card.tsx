@@ -5,13 +5,15 @@ import { cn } from "@/lib/utils";
 interface StatCardProps {
   title: string;
   value: string;
-  change: number;
-  changePercent: number;
+  change: number | null;
+  changePercent: number | null;
   prefix?: string;
 }
 
 export function StatCard({ title, value, change, changePercent, prefix }: StatCardProps) {
-  const isPositive = change >= 0;
+  const safeChange = change ?? 0;
+  const safeChangePercent = changePercent ?? 0;
+  const isPositive = safeChange >= 0;
 
   return (
     <Card>
@@ -33,7 +35,7 @@ export function StatCard({ title, value, change, changePercent, prefix }: StatCa
           "text-xs font-medium mt-1 flex items-center gap-1",
           isPositive ? "text-success" : "text-destructive"
         )}>
-          {isPositive ? "+" : ""}{change.toFixed(2)} ({isPositive ? "+" : ""}{changePercent.toFixed(2)}%)
+          {isPositive ? "+" : ""}{safeChange.toFixed(2)} ({isPositive ? "+" : ""}{safeChangePercent.toFixed(2)}%)
           <span className="text-muted-foreground ml-1">today</span>
         </p>
       </CardContent>
