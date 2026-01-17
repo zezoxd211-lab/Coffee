@@ -74,12 +74,19 @@ export default function StockDetail() {
           <div className="space-y-1">
             <div className="flex items-center gap-4">
               {getStockLogo(stock.symbol) ? (
-                <img src={getStockLogo(stock.symbol)!} alt={stock.name} className="h-16 w-16 rounded-lg object-cover" />
-              ) : (
-                <div className="h-16 w-16 rounded-lg bg-accent flex items-center justify-center font-bold text-xl font-mono">
-                  {stock.symbol}
-                </div>
-              )}
+                <img 
+                  src={getStockLogo(stock.symbol)!} 
+                  alt={stock.name} 
+                  className="h-16 w-16 rounded-lg object-cover bg-accent"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                  }}
+                />
+              ) : null}
+              <div className={`h-16 w-16 rounded-lg bg-accent flex items-center justify-center font-bold text-xl font-mono ${getStockLogo(stock.symbol) ? 'hidden' : ''}`}>
+                {stock.symbol}
+              </div>
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-4xl font-bold tracking-tight">{language === "ar" ? stock.nameAr : stock.name}</h1>

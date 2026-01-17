@@ -139,12 +139,19 @@ export default function Dashboard() {
                       <Link key={stock.symbol} href={`/stock/${stock.symbol}`} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors" data-testid={`stock-link-${stock.symbol}`}>
                         <div className="flex items-center gap-3">
                           {logo ? (
-                            <img src={logo} alt={stock.name} className="h-10 w-10 rounded-full object-cover" />
-                          ) : (
-                            <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center font-bold text-xs font-mono">
-                              {stock.symbol}
-                            </div>
-                          )}
+                            <img 
+                              src={logo} 
+                              alt={stock.name} 
+                              className="h-10 w-10 rounded-full object-cover bg-accent"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              }}
+                            />
+                          ) : null}
+                          <div className={`h-10 w-10 rounded-full bg-accent flex items-center justify-center font-bold text-xs font-mono ${logo ? 'hidden' : ''}`}>
+                            {stock.symbol}
+                          </div>
                           <div>
                             <p className="font-medium text-sm">{language === "ar" ? stock.nameAr : stock.name}</p>
                             <p className="text-xs text-muted-foreground">{stock.sector}</p>
