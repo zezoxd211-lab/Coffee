@@ -914,6 +914,335 @@ export async function registerRoutes(
     res.json(peers);
   });
 
+  // Historical prices endpoint - fetch maximum available data
+  app.get("/api/stocks/:symbol/history", async (req: Request, res: Response) => {
+    const { symbol } = req.params;
+    const { range = "max", interval = "1d" } = req.query;
+    
+    const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
+    if (!stockInfo) {
+      return res.status(404).json({ error: "Stock not found" });
+    }
+    
+    const data = await fetchFromYahoo(stockInfo.symbol, range as string, interval as string, true);
+    
+    if (!data || !data.chart.result || data.chart.error) {
+      return res.json({ symbol, history: [], message: "No historical data available" });
+    }
+    
+    const result = data.chart.result[0];
+    const timestamps = result.timestamp || [];
+    const quote = result.indicators?.quote?.[0] || {};
+    
+    const history = timestamps.map((ts: number, i: number) => ({
+      date: new Date(ts * 1000).toISOString().split("T")[0],
+      open: quote.open?.[i] ?? null,
+      high: quote.high?.[i] ?? null,
+      low: quote.low?.[i] ?? null,
+      close: quote.close?.[i] ?? null,
+      volume: quote.volume?.[i] ?? null
+    })).filter((h: any) => h.close !== null);
+    
+    // Extract dividends and splits from events
+    const events = (result as any).events;
+    const dividends: any[] = [];
+    const splits: any[] = [];
+    
+    if (events?.dividends) {
+      Object.values(events.dividends).forEach((div: any) => {
+        dividends.push({
+          date: new Date(div.date * 1000).toISOString().split("T")[0],
+          amount: Number(div.amount.toFixed(4))
+        });
+      });
+    }
+    
+    if (events?.splits) {
+      Object.values(events.splits).forEach((split: any) => {
+        splits.push({
+          date: new Date(split.date * 1000).toISOString().split("T")[0],
+          ratio: `${split.numerator}:${split.denominator}`
+        });
+      });
+    }
+    
+    res.json({
+      symbol,
+      name: stockInfo.name,
+      range,
+      interval,
+      history,
+      dividends,
+      splits,
+      totalRecords: history.length
+    });
+  });
+
+  // Financial statements endpoint
+  app.get("/api/stocks/:symbol/financials", async (req: Request, res: Response) => {
+    const { symbol } = req.params;
+    
+    const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
+    if (!stockInfo) {
+      return res.status(404).json({ error: "Stock not found" });
+    }
+    
+    try {
+      // Fetch comprehensive financial data from Yahoo Finance
+      const modules = [
+        "incomeStatementHistory",
+        "incomeStatementHistoryQuarterly",
+        "balanceSheetHistory",
+        "balanceSheetHistoryQuarterly",
+        "cashflowStatementHistory",
+        "cashflowStatementHistoryQuarterly",
+        "financialData",
+        "defaultKeyStatistics",
+        "earningsHistory",
+        "earningsTrend"
+      ].join(",");
+      
+      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+      });
+      
+      if (!response.ok) {
+        return res.json({ symbol, financials: null, message: "Financial data not available" });
+      }
+      
+      const data = await response.json();
+      const result = data.quoteSummary?.result?.[0];
+      
+      if (!result) {
+        return res.json({ symbol, financials: null, message: "No financial data found" });
+      }
+      
+      // Process income statements
+      const incomeAnnual = result.incomeStatementHistory?.incomeStatementHistory || [];
+      const incomeQuarterly = result.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+      
+      // Process balance sheets
+      const balanceAnnual = result.balanceSheetHistory?.balanceSheetStatements || [];
+      const balanceQuarterly = result.balanceSheetHistoryQuarterly?.balanceSheetStatements || [];
+      
+      // Process cash flows
+      const cashflowAnnual = result.cashflowStatementHistory?.cashflowStatements || [];
+      const cashflowQuarterly = result.cashflowStatementHistoryQuarterly?.cashflowStatements || [];
+      
+      // Process earnings history
+      const earningsHistory = result.earningsHistory?.history || [];
+      const earningsTrend = result.earningsTrend?.trend || [];
+      
+      // Key statistics
+      const keyStats = result.defaultKeyStatistics || {};
+      const financialData = result.financialData || {};
+      
+      res.json({
+        symbol,
+        name: stockInfo.name,
+        incomeStatements: {
+          annual: incomeAnnual.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            totalRevenue: stmt.totalRevenue?.raw,
+            totalRevenueFormatted: stmt.totalRevenue?.fmt,
+            grossProfit: stmt.grossProfit?.raw,
+            grossProfitFormatted: stmt.grossProfit?.fmt,
+            operatingIncome: stmt.operatingIncome?.raw,
+            operatingIncomeFormatted: stmt.operatingIncome?.fmt,
+            netIncome: stmt.netIncome?.raw,
+            netIncomeFormatted: stmt.netIncome?.fmt,
+            ebit: stmt.ebit?.raw,
+            ebitFormatted: stmt.ebit?.fmt
+          })),
+          quarterly: incomeQuarterly.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            totalRevenue: stmt.totalRevenue?.raw,
+            totalRevenueFormatted: stmt.totalRevenue?.fmt,
+            grossProfit: stmt.grossProfit?.raw,
+            netIncome: stmt.netIncome?.raw,
+            netIncomeFormatted: stmt.netIncome?.fmt
+          }))
+        },
+        balanceSheets: {
+          annual: balanceAnnual.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            totalAssets: stmt.totalAssets?.raw,
+            totalAssetsFormatted: stmt.totalAssets?.fmt,
+            totalLiabilities: stmt.totalLiab?.raw,
+            totalEquity: stmt.totalStockholderEquity?.raw,
+            totalEquityFormatted: stmt.totalStockholderEquity?.fmt,
+            totalDebt: stmt.longTermDebt?.raw,
+            cash: stmt.cash?.raw,
+            cashFormatted: stmt.cash?.fmt
+          })),
+          quarterly: balanceQuarterly.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            totalAssets: stmt.totalAssets?.raw,
+            totalLiabilities: stmt.totalLiab?.raw,
+            totalEquity: stmt.totalStockholderEquity?.raw
+          }))
+        },
+        cashFlows: {
+          annual: cashflowAnnual.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            operatingCashFlow: stmt.totalCashFromOperatingActivities?.raw,
+            operatingCashFlowFormatted: stmt.totalCashFromOperatingActivities?.fmt,
+            capitalExpenditure: stmt.capitalExpenditures?.raw,
+            freeCashFlow: stmt.freeCashFlow?.raw,
+            dividendsPaid: stmt.dividendsPaid?.raw
+          })),
+          quarterly: cashflowQuarterly.map((stmt: any) => ({
+            endDate: stmt.endDate?.fmt,
+            operatingCashFlow: stmt.totalCashFromOperatingActivities?.raw,
+            capitalExpenditure: stmt.capitalExpenditures?.raw
+          }))
+        },
+        earnings: {
+          history: earningsHistory.map((e: any) => ({
+            quarter: e.quarter?.fmt || e.period,
+            date: e.quarterDate?.fmt,
+            epsActual: e.epsActual?.raw,
+            epsEstimate: e.epsEstimate?.raw,
+            epsDifference: e.epsDifference?.raw,
+            surprisePercent: e.surprisePercent?.raw
+          })),
+          estimates: earningsTrend.map((e: any) => ({
+            period: e.period,
+            endDate: e.endDate,
+            growth: e.growth?.raw,
+            earningsEstimateAvg: e.earningsEstimate?.avg?.raw,
+            earningsEstimateLow: e.earningsEstimate?.low?.raw,
+            earningsEstimateHigh: e.earningsEstimate?.high?.raw,
+            revenueEstimateAvg: e.revenueEstimate?.avg?.raw,
+            numberOfAnalysts: e.earningsEstimate?.numberOfAnalysts?.raw
+          }))
+        },
+        keyMetrics: {
+          beta: keyStats.beta?.raw,
+          trailingPE: keyStats.trailingPE?.raw,
+          forwardPE: keyStats.forwardPE?.raw,
+          priceToBook: keyStats.priceToBook?.raw,
+          enterpriseValue: keyStats.enterpriseValue?.raw,
+          enterpriseToRevenue: keyStats.enterpriseToRevenue?.raw,
+          enterpriseToEbitda: keyStats.enterpriseToEbitda?.raw,
+          profitMargins: financialData.profitMargins?.raw,
+          returnOnEquity: financialData.returnOnEquity?.raw,
+          returnOnAssets: financialData.returnOnAssets?.raw,
+          revenueGrowth: financialData.revenueGrowth?.raw,
+          grossMargins: financialData.grossMargins?.raw,
+          operatingMargins: financialData.operatingMargins?.raw,
+          targetMeanPrice: financialData.targetMeanPrice?.raw,
+          recommendationMean: financialData.recommendationMean?.raw,
+          recommendationKey: financialData.recommendationKey
+        }
+      });
+    } catch (error) {
+      console.error(`Error fetching financials for ${symbol}:`, error);
+      res.status(500).json({ error: "Failed to fetch financial data" });
+    }
+  });
+
+  // CSV Export endpoint
+  app.get("/api/export/:symbol/:type", async (req: Request, res: Response) => {
+    const { symbol, type } = req.params;
+    const { range = "1y" } = req.query;
+    
+    const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
+    if (!stockInfo) {
+      return res.status(404).json({ error: "Stock not found" });
+    }
+    
+    try {
+      let csvContent = "";
+      let filename = "";
+      
+      if (type === "prices") {
+        // Fetch price history
+        const data = await fetchFromYahoo(stockInfo.symbol, range as string, "1d", true);
+        
+        if (!data || !data.chart.result) {
+          return res.status(404).json({ error: "No price data available" });
+        }
+        
+        const result = data.chart.result[0];
+        const timestamps = result.timestamp || [];
+        const quote = result.indicators?.quote?.[0] || {};
+        
+        csvContent = "Date,Open,High,Low,Close,Volume\n";
+        timestamps.forEach((ts: number, i: number) => {
+          const date = new Date(ts * 1000).toISOString().split("T")[0];
+          const open = quote.open?.[i]?.toFixed(2) || "";
+          const high = quote.high?.[i]?.toFixed(2) || "";
+          const low = quote.low?.[i]?.toFixed(2) || "";
+          const close = quote.close?.[i]?.toFixed(2) || "";
+          const volume = quote.volume?.[i] || "";
+          if (close) {
+            csvContent += `${date},${open},${high},${low},${close},${volume}\n`;
+          }
+        });
+        
+        filename = `${symbol}_prices_${range}.csv`;
+        
+      } else if (type === "dividends") {
+        const data = await fetchFromYahoo(stockInfo.symbol, "10y", "1d", true);
+        
+        csvContent = "Date,Amount\n";
+        if (data?.chart.result?.[0]) {
+          const events = (data.chart.result[0] as any).events;
+          if (events?.dividends) {
+            Object.values(events.dividends)
+              .sort((a: any, b: any) => b.date - a.date)
+              .forEach((div: any) => {
+                const date = new Date(div.date * 1000).toISOString().split("T")[0];
+                csvContent += `${date},${div.amount.toFixed(4)}\n`;
+              });
+          }
+        }
+        
+        filename = `${symbol}_dividends.csv`;
+        
+      } else if (type === "financials") {
+        // Fetch financial statements
+        const modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory";
+        const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
+        const response = await fetch(url, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        });
+        
+        if (!response.ok) {
+          return res.status(404).json({ error: "Financial data not available" });
+        }
+        
+        const finData = await response.json();
+        const result = finData.quoteSummary?.result?.[0];
+        const incomeHistory = result?.incomeStatementHistory?.incomeStatementHistory || [];
+        
+        csvContent = "Fiscal Year End,Total Revenue,Gross Profit,Operating Income,Net Income\n";
+        incomeHistory.forEach((stmt: any) => {
+          csvContent += `${stmt.endDate?.fmt || ""},`;
+          csvContent += `${stmt.totalRevenue?.raw || ""},`;
+          csvContent += `${stmt.grossProfit?.raw || ""},`;
+          csvContent += `${stmt.operatingIncome?.raw || ""},`;
+          csvContent += `${stmt.netIncome?.raw || ""}\n`;
+        });
+        
+        filename = `${symbol}_financials.csv`;
+        
+      } else {
+        return res.status(400).json({ error: "Invalid export type. Use: prices, dividends, or financials" });
+      }
+      
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(csvContent);
+      
+    } catch (error) {
+      console.error(`Error exporting ${type} for ${symbol}:`, error);
+      res.status(500).json({ error: "Export failed" });
+    }
+  });
+
   return httpServer;
 }
 

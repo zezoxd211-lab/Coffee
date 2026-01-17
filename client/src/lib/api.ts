@@ -86,6 +86,36 @@ export interface StockAnalysis {
   };
 }
 
+export interface DividendData {
+  date: string;
+  amount: number;
+}
+
+export interface SplitData {
+  date: string;
+  ratio: string;
+}
+
+export interface FundamentalsData {
+  revenue?: string;
+  revenueGrowth?: string;
+  grossMargins?: string;
+  operatingMargins?: string;
+  profitMargins?: string;
+  returnOnEquity?: string;
+  returnOnAssets?: string;
+  ebitda?: string;
+  freeCashflow?: string;
+  targetMeanPrice?: string | null;
+  beta?: string;
+  trailingPE?: string;
+  forwardPE?: string;
+  priceToBook?: string;
+  enterpriseToRevenue?: string;
+  enterpriseToEbitda?: string;
+  recommendationKey?: string | null;
+}
+
 export interface Stock {
   symbol: string;
   name: string;
@@ -100,9 +130,13 @@ export interface Stock {
   dividendYield: number;
   volume: string;
   description?: string;
-  history?: { date: string; price: number }[];
+  history?: { date: string; price: number; open?: number; high?: number; low?: number; volume?: number }[];
   financials?: FinancialData[];
   analysis?: StockAnalysis;
+  dividends?: DividendData[];
+  splits?: SplitData[];
+  fundamentals?: FundamentalsData | null;
+  isMock?: boolean;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

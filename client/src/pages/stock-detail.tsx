@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Star, StarOff, Download, Share2, Loader2, TrendingUp, TrendingDown, BarChart3, DollarSign, PieChart, Activity, Target, Users, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { ArrowLeft, Star, StarOff, Download, Share2, Loader2, TrendingUp, TrendingDown, BarChart3, DollarSign, PieChart, Activity, Target, Users, ArrowUpRight, ArrowDownRight, FileSpreadsheet, Calendar, Wallet } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Link } from "wouter";
 import NotFound from "./not-found";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -164,7 +165,36 @@ export default function StockDetail() {
             )}
             {isInWatchlist ? (language === "ar" ? "إزالة من المراقبة" : "Remove") : t("watch")}
           </Button>
-          <Button variant="outline" size="sm" className="gap-2" data-testid="btn-export"><Download className="h-4 w-4" /> {t("export")}</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2" data-testid="btn-export">
+                <Download className="h-4 w-4" /> {t("export")}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem 
+                onClick={() => window.open(`/api/export/${symbol}/prices?range=max`, '_blank')}
+                data-testid="export-prices"
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                {language === "ar" ? "تحميل الأسعار التاريخية" : "Download Price History (CSV)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => window.open(`/api/export/${symbol}/dividends`, '_blank')}
+                data-testid="export-dividends"
+              >
+                <Wallet className="h-4 w-4 mr-2" />
+                {language === "ar" ? "تحميل توزيعات الأرباح" : "Download Dividends (CSV)"}
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => window.open(`/api/export/${symbol}/financials`, '_blank')}
+                data-testid="export-financials"
+              >
+                <BarChart3 className="h-4 w-4 mr-2" />
+                {language === "ar" ? "تحميل البيانات المالية" : "Download Financials (CSV)"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" size="sm" className="gap-2" data-testid="btn-share"><Share2 className="h-4 w-4" /> {t("share")}</Button>
         </div>
 
@@ -195,6 +225,69 @@ export default function StockDetail() {
                     </p>
                   </CardContent>
                 </Card>
+
+                {/* Dividends History */}
+                {stock.dividends && stock.dividends.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2">
+                        <Wallet className="h-5 w-5 text-success" />
+                        {language === "ar" ? "تاريخ توزيعات الأرباح" : "Dividend History"}
+                      </CardTitle>
+                      <CardDescription>
+                        {language === "ar" ? "آخر توزيعات الأرباح" : "Recent dividend payments"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{language === "ar" ? "التاريخ" : "Date"}</TableHead>
+                            <TableHead className="text-right">{language === "ar" ? "المبلغ" : "Amount (SAR)"}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {stock.dividends.slice(0, 5).map((div: { date: string; amount: number }, idx: number) => (
+                            <TableRow key={idx} data-testid={`dividend-row-${idx}`}>
+                              <TableCell className="font-mono">{div.date}</TableCell>
+                              <TableCell className="text-right font-mono text-success">{div.amount.toFixed(4)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Stock Splits */}
+                {stock.splits && stock.splits.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-blue-500" />
+                        {language === "ar" ? "تجزئة الأسهم" : "Stock Splits"}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{language === "ar" ? "التاريخ" : "Date"}</TableHead>
+                            <TableHead className="text-right">{language === "ar" ? "النسبة" : "Ratio"}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {stock.splits.map((split: { date: string; ratio: string }, idx: number) => (
+                            <TableRow key={idx} data-testid={`split-row-${idx}`}>
+                              <TableCell className="font-mono">{split.date}</TableCell>
+                              <TableCell className="text-right font-mono font-medium">{split.ratio}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
 
               <div className="space-y-6">
