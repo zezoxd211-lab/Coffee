@@ -10,6 +10,9 @@ interface YahooChartResult {
       meta: {
         regularMarketPrice: number;
         previousClose: number;
+        chartPreviousClose?: number;
+        regularMarketChange?: number;
+        regularMarketChangePercent?: number;
         currency: string;
         symbol: string;
       };
@@ -164,23 +167,46 @@ export async function registerRoutes(
     res.json({ data: trimmedData, isMock: false });
   });
 
-  // Get all market indices - fetch from Yahoo Finance
+  // Get all market indices - fetch from Yahoo Finance with 5-day range
   app.get("/api/market/indices", async (req: Request, res: Response) => {
     const indexPromises = Object.entries(INDEX_SYMBOLS).map(async ([name, symbol]) => {
-      const data = await fetchFromYahoo(symbol, "1d", "1d");
+      // Use 5d range to get proper previous close data
+      const data = await fetchFromYahoo(symbol, "5d", "1d");
       
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
-        const previousClose = result.meta.previousClose || result.meta.regularMarketPrice;
+        const quoteData = result.indicators?.quote?.[0]?.close;
+        
+        if (quoteData && Array.isArray(quoteData)) {
+          const closes = quoteData.filter((c: number | null) => c !== null);
+          
+          if (closes.length >= 2) {
+            const currentPrice = closes[closes.length - 1];
+            const previousClose = closes[closes.length - 2];
+            const change = currentPrice - previousClose;
+            const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+            
+            return {
+              name,
+              value: Number(currentPrice.toFixed(2)),
+              change: Number(change.toFixed(2)),
+              changePercent: Number(changePercent.toFixed(2)),
+              isMock: false
+            };
+          }
+        }
+        
+        // Fallback to meta data
         const currentPrice = result.meta.regularMarketPrice;
+        const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
         
         return {
           name,
-          value: currentPrice,
-          change,
-          changePercent,
+          value: Number(currentPrice.toFixed(2)),
+          change: Number(change.toFixed(2)),
+          changePercent: Number(changePercent.toFixed(2)),
           isMock: false
         };
       }
@@ -196,12 +222,43 @@ export async function registerRoutes(
   // Get stocks list with real-time data from Yahoo Finance
   app.get("/api/stocks", async (req: Request, res: Response) => {
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "1d", "1d");
+      // Use 5d range to get proper previous close data
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
       
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
-        const previousClose = result.meta.previousClose || result.meta.regularMarketPrice;
+        const quoteData = result.indicators?.quote?.[0]?.close;
+        
+        if (quoteData && Array.isArray(quoteData)) {
+          const closes = quoteData.filter((c: number | null) => c !== null);
+          
+          if (closes.length >= 2) {
+            const currentPrice = closes[closes.length - 1];
+            const previousClose = closes[closes.length - 2];
+            const change = currentPrice - previousClose;
+            const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+            
+            return {
+              symbol: id,
+              name: info.name,
+              nameAr: info.nameAr,
+              sector: info.sector,
+              price: Number(currentPrice.toFixed(2)),
+              change: Number(change.toFixed(2)),
+              changePercent: Number(changePercent.toFixed(2)),
+              marketCap: getMarketCap(id),
+              pe: getPE(id),
+              eps: getEPS(id),
+              dividendYield: getDividendYield(id),
+              volume: "N/A",
+              isMock: false
+            };
+          }
+        }
+        
+        // Fallback to meta data
         const currentPrice = result.meta.regularMarketPrice;
+        const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
         
@@ -210,9 +267,9 @@ export async function registerRoutes(
           name: info.name,
           nameAr: info.nameAr,
           sector: info.sector,
-          price: currentPrice,
-          change,
-          changePercent,
+          price: Number(currentPrice.toFixed(2)),
+          change: Number(change.toFixed(2)),
+          changePercent: Number(changePercent.toFixed(2)),
           marketCap: getMarketCap(id),
           pe: getPE(id),
           eps: getEPS(id),
@@ -240,43 +297,44 @@ export async function registerRoutes(
       return;
     }
     
-    // Fetch current price
-    const currentData = await fetchFromYahoo(stockInfo.symbol, "1d", "1d");
-    // Fetch historical data
+    // Fetch historical data (1 month for chart, also use for price/change)
     const historyData = await fetchFromYahoo(stockInfo.symbol, "1mo", "1d");
     
     let price = 0;
     let change = 0;
     let changePercent = 0;
     let isMock = true;
+    let history: { date: string; price: number }[] = [];
     
-    if (currentData && currentData.chart.result && !currentData.chart.error) {
-      const result = currentData.chart.result[0];
-      const previousClose = result.meta.previousClose || result.meta.regularMarketPrice;
-      price = result.meta.regularMarketPrice;
-      change = price - previousClose;
-      changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-      isMock = false;
+    if (historyData && historyData.chart.result && !historyData.chart.error) {
+      const result = historyData.chart.result[0];
+      const timestamps = result.timestamp || [];
+      const closes = result.indicators.quote[0].close || [];
+      
+      // Build history array
+      history = timestamps.map((ts, i) => ({
+        date: new Date(ts * 1000).toISOString().split("T")[0],
+        price: closes[i] ? Number(closes[i].toFixed(2)) : null
+      })).filter(d => d.price !== null) as { date: string; price: number }[];
+      
+      // Calculate change from last two trading days
+      const validCloses = closes.filter((c: number | null) => c !== null);
+      if (validCloses.length >= 2) {
+        price = Number(validCloses[validCloses.length - 1].toFixed(2));
+        const previousClose = validCloses[validCloses.length - 2];
+        change = Number((price - previousClose).toFixed(2));
+        changePercent = previousClose > 0 ? Number(((change / previousClose) * 100).toFixed(2)) : 0;
+        isMock = false;
+      } else if (validCloses.length === 1) {
+        price = Number(validCloses[0].toFixed(2));
+        isMock = false;
+      }
     } else {
       // Use mock data
       const mockData = getMockStockData(symbol, stockInfo);
       price = mockData.price;
       change = mockData.change;
       changePercent = mockData.changePercent;
-    }
-    
-    // Build history array
-    let history: { date: string; price: number }[] = [];
-    if (historyData && historyData.chart.result && !historyData.chart.error) {
-      const result = historyData.chart.result[0];
-      const timestamps = result.timestamp || [];
-      const closes = result.indicators.quote[0].close || [];
-      
-      history = timestamps.map((ts, i) => ({
-        date: new Date(ts * 1000).toISOString().split("T")[0],
-        price: closes[i] ? Number(closes[i].toFixed(2)) : null
-      })).filter(d => d.price !== null) as { date: string; price: number }[];
-    } else {
       history = generateMockHistory(30, price);
     }
     
