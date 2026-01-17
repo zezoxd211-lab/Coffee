@@ -54,7 +54,8 @@ const translations = {
     "op_cash_flow": "Op. Cash Flow",
     "free_cash_flow": "Free Cash Flow",
     "gross_margin": "Gross Margin",
-    "net_margin": "Net Margin"
+    "net_margin": "Net Margin",
+    "no_results_found": "No stocks found"
   },
   ar: {
     "dashboard": "لوحة التحكم",
@@ -100,7 +101,8 @@ const translations = {
     "op_cash_flow": "التدفق النقدي التشغيلي",
     "free_cash_flow": "التدفق النقدي الحر",
     "gross_margin": "هامش الربح الإجمالي",
-    "net_margin": "هامش صافي الربح"
+    "net_margin": "هامش صافي الربح",
+    "no_results_found": "لا توجد نتائج"
   }
 };
 

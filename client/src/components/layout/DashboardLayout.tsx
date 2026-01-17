@@ -1,16 +1,16 @@
 import { ReactNode } from "react";
 import { Sidebar, MobileSidebar } from "./Sidebar";
-import { Search, Bell, User } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/LanguageContext";
+import { StockSearch } from "./StockSearch";
 
 interface DashboardLayoutProps {
   children: ReactNode;
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { t, isRtl } = useLanguage();
+  const { isRtl } = useLanguage();
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -21,17 +21,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <header className="flex h-16 items-center justify-between border-b bg-card px-6">
           <div className="flex items-center gap-4">
             <MobileSidebar />
-            <div className="relative w-64 md:w-96">
-              <Search className={isRtl ? "absolute right-2.5 top-2.5 h-4 w-4 text-muted-foreground" : "absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"} />
-              <Input
-                type="search"
-                placeholder={t("search_placeholder")}
-                className={cn(
-                    "w-full bg-background md:w-[300px] lg:w-[400px]",
-                    isRtl ? "pr-9" : "pl-9"
-                )}
-              />
-            </div>
+            <StockSearch />
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" className="text-muted-foreground">
@@ -52,5 +42,3 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   );
 }
 
-// Helper to avoid duplicate cn import if not already there, but it is in utils
-import { cn } from "@/lib/utils";
