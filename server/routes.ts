@@ -4,6 +4,46 @@ import { storage } from "./storage";
 
 const YAHOO_FINANCE_BASE = "https://query1.finance.yahoo.com/v8/finance/chart";
 
+// Simple in-memory cache with TTL
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  ttl: number;
+}
+
+const cache = new Map<string, CacheEntry<any>>();
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > entry.ttl) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache<T>(key: string, data: T, ttlMs: number = 30000): void {
+  cache.set(key, {
+    data,
+    timestamp: Date.now(),
+    ttl: ttlMs
+  });
+}
+
+// Cache TTLs in milliseconds
+const CACHE_TTL = {
+  INDICES: 30000,        // 30 seconds
+  STOCKS_LIST: 30000,    // 30 seconds
+  STOCK_DETAIL: 30000,   // 30 seconds
+  MOVERS: 30000,         // 30 seconds
+  SECTORS: 60000,        // 1 minute
+  COMMODITIES: 30000,    // 30 seconds
+  TASI: 30000,           // 30 seconds
+  TASI_HISTORY: 120000,  // 2 minutes
+  NEWS: 300000,          // 5 minutes
+};
+
 interface YahooChartResult {
   chart: {
     result: Array<{
@@ -132,6 +172,13 @@ export async function registerRoutes(
 
   // Get current TASI OHLC data
   app.get("/api/market/tasi", async (req: Request, res: Response) => {
+    const cacheKey = "market:tasi";
+    const cached = getCached<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const yahooData = await fetchFromYahoo("^TASI.SR", "1d", "1d");
     
     if (!yahooData || !yahooData.chart.result || yahooData.chart.error) {
@@ -152,7 +199,7 @@ export async function registerRoutes(
     const quote = result.indicators.quote[0];
     const lastIdx = quote.close.length - 1;
     
-    res.json({
+    const tasiData = {
       index: "TASI",
       date: getTodayDate(),
       open: quote.open[lastIdx] || result.meta.previousClose,
@@ -161,12 +208,21 @@ export async function registerRoutes(
       close: result.meta.regularMarketPrice,
       volume: quote.volume[lastIdx] ? formatVolume(quote.volume[lastIdx]) : "N/A",
       isMock: false
-    });
+    };
+    setCache(cacheKey, tasiData, CACHE_TTL.TASI);
+    res.json(tasiData);
   });
 
   // Get TASI historical data for charts
   app.get("/api/market/tasi/history", async (req: Request, res: Response) => {
     const days = parseInt(req.query.days as string) || 30;
+    const cacheKey = `market:tasi:history:${days}`;
+    const cached = getCached<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const range = days <= 30 ? "1mo" : days <= 90 ? "3mo" : "6mo";
     
     const yahooData = await fetchFromYahoo("^TASI.SR", range, "1d");
@@ -188,11 +244,20 @@ export async function registerRoutes(
     
     const trimmedData = historyData.slice(-days);
     
-    res.json({ data: trimmedData, isMock: false });
+    const historyResult = { data: trimmedData, isMock: false };
+    setCache(cacheKey, historyResult, CACHE_TTL.TASI_HISTORY);
+    res.json(historyResult);
   });
 
   // Get all market indices - fetch from Yahoo Finance with 5-day range
   app.get("/api/market/indices", async (req: Request, res: Response) => {
+    const cacheKey = "market:indices";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const indexPromises = Object.entries(INDEX_SYMBOLS).map(async ([name, symbol]) => {
       // Use 5d range to get proper previous close data
       const data = await fetchFromYahoo(symbol, "5d", "1d");
@@ -240,11 +305,19 @@ export async function registerRoutes(
     });
     
     const indices = await Promise.all(indexPromises);
+    setCache(cacheKey, indices, CACHE_TTL.INDICES);
     res.json(indices);
   });
 
   // Get stocks list with real-time data from Yahoo Finance
   app.get("/api/stocks", async (req: Request, res: Response) => {
+    const cacheKey = "stocks:list";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       // Use 5d range to get proper previous close data
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
@@ -308,6 +381,7 @@ export async function registerRoutes(
     });
     
     const stocks = await Promise.all(stockPromises);
+    setCache(cacheKey, stocks, CACHE_TTL.STOCKS_LIST);
     res.json(stocks);
   });
 
@@ -323,6 +397,13 @@ export async function registerRoutes(
     
     // Parse days parameter for historical data
     const days = parseInt(req.query.days as string) || 30;
+    const cacheKey = `stock:${symbol}:${days}`;
+    const cached = getCached<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : "1y";
     
     // Fetch historical data with events (dividends, splits) and fundamentals in parallel
@@ -470,9 +551,8 @@ export async function registerRoutes(
     }
     
     // Get latest volume from history
-    const latestVolume = history.length > 0 && history[history.length - 1].volume 
-      ? history[history.length - 1].volume 
-      : totalVolume > 0 ? Math.floor(totalVolume / history.length) : 0;
+    const lastHistoryVolume = history.length > 0 ? history[history.length - 1].volume : undefined;
+    const latestVolume: number = lastHistoryVolume ?? (totalVolume > 0 ? Math.floor(totalVolume / history.length) : 0);
     
     const stock = {
       symbol,
@@ -535,11 +615,19 @@ export async function registerRoutes(
       }
     };
     
+    setCache(cacheKey, stock, CACHE_TTL.STOCK_DETAIL);
     res.json(stock);
   });
 
   // Market movers endpoint (top gainers, losers, volume)
   app.get("/api/market/movers", async (req: Request, res: Response) => {
+    const cacheKey = "market:movers";
+    const cached = getCached<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
       
@@ -587,11 +675,20 @@ export async function registerRoutes(
     const losers = [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
     const volumeLeaders = [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 5);
     
-    res.json({ gainers, losers, volumeLeaders });
+    const result = { gainers, losers, volumeLeaders };
+    setCache(cacheKey, result, CACHE_TTL.MOVERS);
+    res.json(result);
   });
 
   // Sector performance heatmap
   app.get("/api/market/sectors", async (req: Request, res: Response) => {
+    const cacheKey = "market:sectors";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
       
@@ -632,11 +729,19 @@ export async function registerRoutes(
       stockCount: data.count
     })).sort((a, b) => b.marketCap - a.marketCap);
     
+    setCache(cacheKey, sectors, CACHE_TTL.SECTORS);
     res.json(sectors);
   });
 
   // FX and Commodities
   app.get("/api/market/commodities", async (req: Request, res: Response) => {
+    const cacheKey = "market:commodities";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const symbols = {
       "USD/SAR": "SAR=X",
       "Brent Crude": "BZ=F",
@@ -685,11 +790,19 @@ export async function registerRoutes(
       })
     );
     
+    setCache(cacheKey, results, CACHE_TTL.COMMODITIES);
     res.json(results);
   });
 
   // Market breadth indicators
   app.get("/api/market/breadth", async (req: Request, res: Response) => {
+    const cacheKey = "market:breadth";
+    const cached = getCached<any>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
       
@@ -717,7 +830,7 @@ export async function registerRoutes(
     const upVolume = stocks.filter(s => s.change > 0).reduce((sum, s) => sum + s.volume, 0);
     const downVolume = stocks.filter(s => s.change < 0).reduce((sum, s) => sum + s.volume, 0);
     
-    res.json({
+    const breadthData = {
       advances,
       declines,
       unchanged,
@@ -726,11 +839,20 @@ export async function registerRoutes(
       downVolume: formatVolume(downVolume),
       volumeRatio: downVolume > 0 ? Number((upVolume / downVolume).toFixed(2)) : 0,
       total: stocks.length
-    });
+    };
+    setCache(cacheKey, breadthData, CACHE_TTL.MOVERS);
+    res.json(breadthData);
   });
 
   // Market news endpoint
   app.get("/api/market/news", async (req: Request, res: Response) => {
+    const cacheKey = "market:news";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
     const news = [
       {
         id: "1",
@@ -814,6 +936,7 @@ export async function registerRoutes(
       }
     ];
     
+    setCache(cacheKey, news, CACHE_TTL.NEWS);
     res.json(news);
   });
 

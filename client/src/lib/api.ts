@@ -151,8 +151,8 @@ export function useMarketIndices() {
   return useQuery<MarketIndex[]>({
     queryKey: ["market", "indices"],
     queryFn: () => fetchJson("/market/indices"),
-    refetchInterval: 60000, // Refresh every minute
-    staleTime: 30000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -160,7 +160,8 @@ export function useTASIOHLC(date?: string) {
   return useQuery<TASIOHLCData>({
     queryKey: ["market", "tasi", date],
     queryFn: () => fetchJson(date ? `/market/tasi?date=${date}` : "/market/tasi"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -168,7 +169,8 @@ export function useTASIHistory(days: number = 30) {
   return useQuery<{ data: { date: string; price: number }[]; isMock: boolean }>({
     queryKey: ["market", "tasi", "history", days],
     queryFn: () => fetchJson(`/market/tasi/history?days=${days}`),
-    staleTime: 300000, // 5 minutes
+    refetchInterval: 300000,
+    staleTime: 120000,
   });
 }
 
@@ -176,7 +178,8 @@ export function useStocks() {
   return useQuery<Stock[]>({
     queryKey: ["stocks"],
     queryFn: () => fetchJson("/stocks"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -185,7 +188,8 @@ export function useStock(symbol: string, days: number = 30) {
     queryKey: ["stock", symbol, days],
     queryFn: () => fetchJson(`/stocks/${symbol}?days=${days}`),
     enabled: !!symbol,
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -204,7 +208,8 @@ export function useMarketNews() {
   return useQuery<MarketNews[]>({
     queryKey: ["market", "news"],
     queryFn: () => fetchJson("/market/news"),
-    staleTime: 300000,
+    refetchInterval: 300000,
+    staleTime: 120000,
   });
 }
 
@@ -229,7 +234,8 @@ export function useMarketMovers() {
   return useQuery<MarketMovers>({
     queryKey: ["market", "movers"],
     queryFn: () => fetchJson("/market/movers"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -244,7 +250,8 @@ export function useSectorPerformance() {
   return useQuery<SectorPerformance[]>({
     queryKey: ["market", "sectors"],
     queryFn: () => fetchJson("/market/sectors"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -261,7 +268,8 @@ export function useCommodities() {
   return useQuery<Commodity[]>({
     queryKey: ["market", "commodities"],
     queryFn: () => fetchJson("/market/commodities"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -280,7 +288,8 @@ export function useMarketBreadth() {
   return useQuery<MarketBreadth>({
     queryKey: ["market", "breadth"],
     queryFn: () => fetchJson("/market/breadth"),
-    staleTime: 60000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 }
 
@@ -288,6 +297,7 @@ export function useWatchlist() {
   return useQuery<string[]>({
     queryKey: ["watchlist"],
     queryFn: () => fetchJson("/watchlist"),
+    refetchInterval: 60000,
     staleTime: 30000,
   });
 }
@@ -326,6 +336,7 @@ export function useStockPeers(symbol: string) {
     queryKey: ["stock", symbol, "peers"],
     queryFn: () => fetchJson(`/stocks/${symbol}/peers`),
     enabled: !!symbol,
-    staleTime: 60000,
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 }
