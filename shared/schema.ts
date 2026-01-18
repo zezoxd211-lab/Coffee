@@ -108,3 +108,21 @@ export const dailySnapshots = pgTable("daily_snapshots", {
 });
 
 export type DailySnapshot = typeof dailySnapshots.$inferSelect;
+
+// Portfolio holdings
+export const portfolio = pgTable("portfolio", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull().unique(),
+  shares: real("shares").notNull(),
+  avgCost: real("avg_cost").notNull(),
+  addedAt: timestamp("added_at").defaultNow(),
+});
+
+export const insertPortfolioSchema = createInsertSchema(portfolio).pick({
+  symbol: true,
+  shares: true,
+  avgCost: true,
+});
+
+export type InsertPortfolioItem = z.infer<typeof insertPortfolioSchema>;
+export type PortfolioItem = typeof portfolio.$inferSelect;

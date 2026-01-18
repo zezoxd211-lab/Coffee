@@ -55,7 +55,11 @@ const translations = {
     "free_cash_flow": "Free Cash Flow",
     "gross_margin": "Gross Margin",
     "net_margin": "Net Margin",
-    "no_results_found": "No stocks found"
+    "no_results_found": "No stocks found",
+    "dcf_calculator": "DCF Calculator",
+    "earnings_calendar": "Earnings Calendar",
+    "dip_finder": "Dip Finder",
+    "portfolio": "Portfolio"
   },
   ar: {
     "dashboard": "لوحة التحكم",
@@ -102,7 +106,11 @@ const translations = {
     "free_cash_flow": "التدفق النقدي الحر",
     "gross_margin": "هامش الربح الإجمالي",
     "net_margin": "هامش صافي الربح",
-    "no_results_found": "لا توجد نتائج"
+    "no_results_found": "لا توجد نتائج",
+    "dcf_calculator": "حاسبة DCF",
+    "earnings_calendar": "تقويم الأرباح",
+    "dip_finder": "اكتشاف الفرص",
+    "portfolio": "المحفظة"
   }
 };
 

@@ -10,6 +10,10 @@ import Market from "@/pages/market";
 import Analysis from "@/pages/analysis";
 import News from "@/pages/news";
 import Settings from "@/pages/settings";
+import DCFCalculator from "@/pages/dcf-calculator";
+import EarningsCalendar from "@/pages/earnings-calendar";
+import DipFinder from "@/pages/dip-finder";
+import Portfolio from "@/pages/portfolio";
 
 import { LanguageProvider } from "@/lib/LanguageContext";
 
@@ -22,6 +26,10 @@ function Router() {
       <Route path="/news" component={News} />
       <Route path="/settings" component={Settings} />
       <Route path="/stock/:symbol" component={StockDetail} />
+      <Route path="/dcf-calculator" component={DCFCalculator} />
+      <Route path="/earnings-calendar" component={EarningsCalendar} />
+      <Route path="/dip-finder" component={DipFinder} />
+      <Route path="/portfolio" component={Portfolio} />
       <Route component={NotFound} />
     </Switch>
   );

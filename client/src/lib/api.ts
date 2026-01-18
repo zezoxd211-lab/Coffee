@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 const API_BASE = "/api";
 
@@ -338,5 +338,98 @@ export function useStockPeers(symbol: string) {
     enabled: !!symbol,
     refetchInterval: 60000,
     staleTime: 30000,
+  });
+}
+
+export interface EarningsEvent {
+  symbol: string;
+  name: string;
+  nameAr: string;
+  date: string;
+  estimatedEPS?: number;
+  actualEPS?: number;
+  result?: "beat" | "miss" | "meet";
+}
+
+export function useEarningsCalendar() {
+  return useQuery<EarningsEvent[]>({
+    queryKey: ["earnings", "calendar"],
+    queryFn: () => fetchJson("/earnings/calendar"),
+    refetchInterval: 300000,
+    staleTime: 60000,
+  });
+}
+
+export interface DipStock {
+  symbol: string;
+  name: string;
+  nameAr: string;
+  sector: string;
+  currentPrice: number;
+  high52Week: number;
+  dipPercent: number;
+}
+
+export function useDipFinder(minDip: number = 10, maxDip: number = 50) {
+  return useQuery<DipStock[]>({
+    queryKey: ["dip-finder", minDip, maxDip],
+    queryFn: () => fetchJson(`/market/dip-finder?minDip=${minDip}&maxDip=${maxDip}`),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}
+
+export interface PortfolioHolding {
+  symbol: string;
+  name: string;
+  nameAr: string;
+  sector: string;
+  shares: number;
+  avgCost: number;
+  currentPrice: number;
+  currentValue: number;
+  totalCost: number;
+  gain: number;
+  gainPercent: number;
+}
+
+export function usePortfolio() {
+  return useQuery<PortfolioHolding[]>({
+    queryKey: ["portfolio"],
+    queryFn: () => fetchJson("/portfolio"),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+}
+
+export function useAddToPortfolio() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { symbol: string; shares: number; avgCost: number }) => {
+      const response = await fetch(`${API_BASE}/portfolio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+    },
+  });
+}
+
+export function useRemoveFromPortfolio() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (symbol: string) => {
+      const response = await fetch(`${API_BASE}/portfolio/${symbol}`, {
+        method: "DELETE",
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio"] });
+    },
   });
 }

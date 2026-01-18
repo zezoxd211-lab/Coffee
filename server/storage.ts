@@ -1,7 +1,8 @@
 import { 
   type User, type InsertUser, type WatchlistItem, type InsertWatchlistItem, 
   type PriceHistory, type FinancialStatement, type CorporateAction, type EarningsData, type DailySnapshot,
-  users, watchlist, priceHistory, financialStatements, corporateActions, earningsData, dailySnapshots 
+  type PortfolioItem, type InsertPortfolioItem,
+  users, watchlist, priceHistory, financialStatements, corporateActions, earningsData, dailySnapshots, portfolio 
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
@@ -26,6 +27,10 @@ export interface IStorage {
   saveEarningsData(data: Omit<EarningsData, 'id' | 'createdAt'>): Promise<EarningsData>;
   getDailySnapshots(symbol: string, startDate?: string, endDate?: string): Promise<DailySnapshot[]>;
   saveDailySnapshot(data: Omit<DailySnapshot, 'id' | 'createdAt'>): Promise<DailySnapshot>;
+  getPortfolio(): Promise<PortfolioItem[]>;
+  addToPortfolio(item: InsertPortfolioItem): Promise<PortfolioItem>;
+  removeFromPortfolio(symbol: string): Promise<boolean>;
+  getPortfolioItem(symbol: string): Promise<PortfolioItem | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -134,6 +139,33 @@ export class DatabaseStorage implements IStorage {
     const result = await db.insert(dailySnapshots).values(data).returning();
     return result[0];
   }
+
+  async getPortfolio(): Promise<PortfolioItem[]> {
+    return db.select().from(portfolio).orderBy(portfolio.addedAt);
+  }
+
+  async addToPortfolio(item: InsertPortfolioItem): Promise<PortfolioItem> {
+    const existing = await db.select().from(portfolio).where(eq(portfolio.symbol, item.symbol));
+    if (existing.length > 0) {
+      const updated = await db.update(portfolio)
+        .set({ shares: item.shares, avgCost: item.avgCost })
+        .where(eq(portfolio.symbol, item.symbol))
+        .returning();
+      return updated[0];
+    }
+    const result = await db.insert(portfolio).values(item).returning();
+    return result[0];
+  }
+
+  async removeFromPortfolio(symbol: string): Promise<boolean> {
+    const result = await db.delete(portfolio).where(eq(portfolio.symbol, symbol)).returning();
+    return result.length > 0;
+  }
+
+  async getPortfolioItem(symbol: string): Promise<PortfolioItem | undefined> {
+    const result = await db.select().from(portfolio).where(eq(portfolio.symbol, symbol));
+    return result[0];
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -199,6 +231,27 @@ export class MemStorage implements IStorage {
   async getDailySnapshots(): Promise<DailySnapshot[]> { return []; }
   async saveDailySnapshot(data: Omit<DailySnapshot, 'id' | 'createdAt'>): Promise<DailySnapshot> {
     return { ...data, id: randomUUID(), createdAt: new Date() } as DailySnapshot;
+  }
+  
+  private portfolioItems: Map<string, PortfolioItem> = new Map();
+  
+  async getPortfolio(): Promise<PortfolioItem[]> {
+    return Array.from(this.portfolioItems.values());
+  }
+  
+  async addToPortfolio(item: InsertPortfolioItem): Promise<PortfolioItem> {
+    const id = randomUUID();
+    const portfolioItem: PortfolioItem = { ...item, id, addedAt: new Date() };
+    this.portfolioItems.set(item.symbol, portfolioItem);
+    return portfolioItem;
+  }
+  
+  async removeFromPortfolio(symbol: string): Promise<boolean> {
+    return this.portfolioItems.delete(symbol);
+  }
+  
+  async getPortfolioItem(symbol: string): Promise<PortfolioItem | undefined> {
+    return this.portfolioItems.get(symbol);
   }
 }
 

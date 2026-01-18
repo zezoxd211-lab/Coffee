@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, LineChart, PieChart, Newspaper, Settings, Menu, Globe } from "lucide-react";
+import { LayoutDashboard, LineChart, PieChart, Newspaper, Settings, Menu, Globe, Calculator, Calendar, Target, Briefcase } from "lucide-react";
 import generatedImage from '@assets/generated_images/minimalist_geometric_logo_for_financial_analytics_data.png';
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,10 @@ const NAV_ITEMS = [
   { icon: LayoutDashboard, label: "dashboard", href: "/" },
   { icon: LineChart, label: "market", href: "/market" },
   { icon: PieChart, label: "analysis", href: "/analysis" },
+  { icon: Calculator, label: "dcf_calculator", href: "/dcf-calculator" },
+  { icon: Calendar, label: "earnings_calendar", href: "/earnings-calendar" },
+  { icon: Target, label: "dip_finder", href: "/dip-finder" },
+  { icon: Briefcase, label: "portfolio", href: "/portfolio" },
   { icon: Newspaper, label: "news", href: "/news" },
   { icon: Settings, label: "settings", href: "/settings" },
 ];
