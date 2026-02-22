@@ -5,6 +5,7 @@ import { CheckCircle2, ShieldCheck, Lock, Award, TrendingUp, TrendingDown, BarCh
 import { useLanguage } from "@/lib/LanguageContext";
 import { useSaudiExchangeTASI, useMarketBreadth } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { HandWrittenTitle } from "@/components/ui/hand-writing-text";
 
 export default function Landing() {
     const { language, setLanguage } = useLanguage();
@@ -55,14 +56,14 @@ export default function Landing() {
                                 <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 mb-6">
                                     {isAr ? "✨ منصة التحليل الكمي الأولى في المملكة" : "✨ The #1 Quantitative Platform in Saudi Arabia"}
                                 </div>
-                                <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl mb-6 leading-tight">
-                                    {isAr ? "تداول بذكاء في السـوق السـعـودي" : "Trade Smarter in the Saudi Market"}
-                                </h1>
-                                <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
-                                    {isAr
-                                        ? "احصل على بيانات فورية، تحليلات كمية متقدمة، وأدوات احترافية مدعومة بالذكاء الاصطناعي لاتخاذ قرارات استثمارية دقيقة وثقة تامة."
-                                        : "Get real-time data, advanced quantitative analytics, and professional AI-powered tools to make precise and confident investment decisions."}
-                                </p>
+                                <div className="mb-4">
+                                    <HandWrittenTitle
+                                        title={isAr ? "تداول بذكاء في السـوق السـعـودي" : "Trade Smarter in the Saudi Market"}
+                                        subtitle={isAr
+                                            ? "احصل على بيانات فورية، تحليلات كمية متقدمة، وأدوات احترافية مدعومة بالذكاء الاصطناعي لاتخاذ قرارات استثمارية دقيقة وثقة تامة."
+                                            : "Get real-time data, advanced quantitative analytics, and professional AI-powered tools to make precise and confident investment decisions."}
+                                    />
+                                </div>
 
                                 {/* Conversion Form */}
                                 <div className="flex flex-col sm:flex-row gap-3 max-w-md">
