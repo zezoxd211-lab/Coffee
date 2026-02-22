@@ -1,6 +1,12 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { TADAWUL_STOCKS } from "./tadawulStocks";
+import {
+  fetchSaudiExchangeMainMarket,
+  fetchSaudiExchangeTASI,
+  fetchMarketStatus,
+} from "./saudiExchangeApi";
 
 const YAHOO_FINANCE_BASE = "https://query1.finance.yahoo.com/v8/finance/chart";
 
@@ -80,12 +86,12 @@ async function fetchFromYahoo(symbol: string, range: string = "1d", interval: st
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
       }
     });
-    
+
     if (!response.ok) {
       console.error(`Yahoo Finance API error for ${symbol}: ${response.status}`);
       return null;
     }
-    
+
     const data = await response.json();
     return data as YahooChartResult;
   } catch (error) {
@@ -104,11 +110,11 @@ async function fetchQuoteSummary(symbol: string): Promise<any | null> {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
       }
     });
-    
+
     if (!response.ok) {
       return null;
     }
-    
+
     const data = await response.json();
     return data.quoteSummary?.result?.[0] || null;
   } catch (error) {
@@ -136,34 +142,24 @@ const INDEX_SYMBOLS = {
   Bonds: "^TSBI.SR"
 };
 
-// Stock symbols on Yahoo Finance  
-const STOCK_SYMBOLS: Record<string, { symbol: string; name: string; nameAr: string; sector: string }> = {
-  // Energy
-  "2222": { symbol: "2222.SR", name: "Saudi Aramco", nameAr: "أرامكو السعودية", sector: "Energy" },
-  "2030": { symbol: "2030.SR", name: "SARCO", nameAr: "المصافي", sector: "Energy" },
-  "2380": { symbol: "2380.SR", name: "Petro Rabigh", nameAr: "بترو رابغ", sector: "Energy" },
-  "2381": { symbol: "2381.SR", name: "Arabian Drilling", nameAr: "الحفر العربية", sector: "Energy" },
-  // Financials
-  "1120": { symbol: "1120.SR", name: "Al Rajhi Bank", nameAr: "مصرف الراجحي", sector: "Financials" },
-  "1180": { symbol: "1180.SR", name: "SNB", nameAr: "البنك الأهلي", sector: "Financials" },
-  "1150": { symbol: "1150.SR", name: "Alinma Bank", nameAr: "مصرف الإنماء", sector: "Financials" },
-  "1010": { symbol: "1010.SR", name: "Riyad Bank", nameAr: "بنك الرياض", sector: "Financials" },
-  "1050": { symbol: "1050.SR", name: "SABB", nameAr: "ساب", sector: "Financials" },
-  // Materials
-  "2010": { symbol: "2010.SR", name: "SABIC", nameAr: "سابك", sector: "Materials" },
-  "2020": { symbol: "2020.SR", name: "SABIC Agri-Nutrients", nameAr: "سابك للمغذيات", sector: "Materials" },
-  "1211": { symbol: "1211.SR", name: "Ma'aden", nameAr: "معادن", sector: "Materials" },
-  // Telecommunication
-  "7010": { symbol: "7010.SR", name: "STC", nameAr: "اس تي سي", sector: "Telecommunication" },
-  "7020": { symbol: "7020.SR", name: "Mobily", nameAr: "موبايلي", sector: "Telecommunication" },
-  "7030": { symbol: "7030.SR", name: "Zain KSA", nameAr: "زين السعودية", sector: "Telecommunication" },
-  // Real Estate
-  "4300": { symbol: "4300.SR", name: "Dar Al Arkan", nameAr: "دار الأركان", sector: "Real Estate" },
-  // Consumer
-  "4001": { symbol: "4001.SR", name: "Abdullah Al Othaim", nameAr: "العثيم", sector: "Consumer Staples" },
-  // Transport
-  "4030": { symbol: "4030.SR", name: "Bahri", nameAr: "البحري", sector: "Transport" }
-};
+// Full Tadawul stock universe — all listed companies with Yahoo Finance symbols
+// Derived from ./tadawulStocks.ts (deduplicate entries that share the same numeric symbol)
+const STOCK_SYMBOLS: Record<string, { symbol: string; name: string; nameAr: string; sector: string }> = (() => {
+  const seen = new Set<string>();
+  const result: Record<string, { symbol: string; name: string; nameAr: string; sector: string }> = {};
+  for (const [key, stock] of Object.entries(TADAWUL_STOCKS)) {
+    if (!seen.has(stock.symbol)) {
+      seen.add(stock.symbol);
+      result[stock.symbol] = {
+        symbol: stock.yahooSymbol,
+        name: stock.name,
+        nameAr: stock.nameAr,
+        sector: stock.sector,
+      };
+    }
+  }
+  return result;
+})();
 
 export async function registerRoutes(
   httpServer: Server,
@@ -180,7 +176,7 @@ export async function registerRoutes(
     }
 
     const yahooData = await fetchFromYahoo("^TASI.SR", "1d", "1d");
-    
+
     if (!yahooData || !yahooData.chart.result || yahooData.chart.error) {
       res.json({
         index: "TASI",
@@ -194,11 +190,11 @@ export async function registerRoutes(
       });
       return;
     }
-    
+
     const result = yahooData.chart.result[0];
     const quote = result.indicators.quote[0];
     const lastIdx = quote.close.length - 1;
-    
+
     const tasiData = {
       index: "TASI",
       date: getTodayDate(),
@@ -224,26 +220,26 @@ export async function registerRoutes(
     }
 
     const range = days <= 30 ? "1mo" : days <= 90 ? "3mo" : "6mo";
-    
+
     const yahooData = await fetchFromYahoo("^TASI.SR", range, "1d");
-    
+
     if (!yahooData || !yahooData.chart.result || yahooData.chart.error) {
       const mockHistory = generateMockHistory(days);
       res.json({ data: mockHistory, isMock: true });
       return;
     }
-    
+
     const result = yahooData.chart.result[0];
     const timestamps = result.timestamp;
     const closes = result.indicators.quote[0].close;
-    
+
     const historyData = timestamps.map((ts, i) => ({
       date: new Date(ts * 1000).toISOString().split("T")[0],
       price: closes[i] ? Number(closes[i].toFixed(2)) : null
     })).filter(d => d.price !== null) as { date: string; price: number }[];
-    
+
     const trimmedData = historyData.slice(-days);
-    
+
     const historyResult = { data: trimmedData, isMock: false };
     setCache(cacheKey, historyResult, CACHE_TTL.TASI_HISTORY);
     res.json(historyResult);
@@ -261,20 +257,20 @@ export async function registerRoutes(
     const indexPromises = Object.entries(INDEX_SYMBOLS).map(async ([name, symbol]) => {
       // Use 5d range to get proper previous close data
       const data = await fetchFromYahoo(symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0]?.close;
-        
+
         if (quoteData && Array.isArray(quoteData)) {
           const closes = quoteData.filter((c: number | null) => c !== null);
-          
+
           if (closes.length >= 2) {
             const currentPrice = closes[closes.length - 1];
             const previousClose = closes[closes.length - 2];
             const change = currentPrice - previousClose;
             const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-            
+
             return {
               name,
               value: Number(currentPrice.toFixed(2)),
@@ -284,13 +280,13 @@ export async function registerRoutes(
             };
           }
         }
-        
+
         // Fallback to meta data
         const currentPrice = result.meta.regularMarketPrice;
         const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-        
+
         return {
           name,
           value: Number(currentPrice.toFixed(2)),
@@ -299,11 +295,11 @@ export async function registerRoutes(
           isMock: false
         };
       }
-      
+
       // Return mock data if API fails
       return getMockIndexData(name);
     });
-    
+
     const indices = await Promise.all(indexPromises);
     setCache(cacheKey, indices, CACHE_TTL.INDICES);
     res.json(indices);
@@ -321,20 +317,20 @@ export async function registerRoutes(
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       // Use 5d range to get proper previous close data
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0]?.close;
-        
+
         if (quoteData && Array.isArray(quoteData)) {
           const closes = quoteData.filter((c: number | null) => c !== null);
-          
+
           if (closes.length >= 2) {
             const currentPrice = closes[closes.length - 1];
             const previousClose = closes[closes.length - 2];
             const change = currentPrice - previousClose;
             const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-            
+
             return {
               symbol: id,
               name: info.name,
@@ -352,13 +348,13 @@ export async function registerRoutes(
             };
           }
         }
-        
+
         // Fallback to meta data
         const currentPrice = result.meta.regularMarketPrice;
         const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-        
+
         return {
           symbol: id,
           name: info.name,
@@ -375,11 +371,11 @@ export async function registerRoutes(
           isMock: false
         };
       }
-      
+
       // Return mock data if API fails
       return getMockStockData(id, info);
     });
-    
+
     const stocks = await Promise.all(stockPromises);
     setCache(cacheKey, stocks, CACHE_TTL.STOCKS_LIST);
     res.json(stocks);
@@ -389,12 +385,12 @@ export async function registerRoutes(
   app.get("/api/stocks/:symbol", async (req: Request, res: Response) => {
     const symbol = String(req.params.symbol);
     const stockInfo = STOCK_SYMBOLS[symbol];
-    
+
     if (!stockInfo) {
       res.status(404).json({ error: "Stock not found" });
       return;
     }
-    
+
     // Parse days parameter for historical data
     const days = parseInt(req.query.days as string) || 30;
     const cacheKey = `stock:${symbol}:${days}`;
@@ -405,21 +401,21 @@ export async function registerRoutes(
     }
 
     const range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : "1y";
-    
+
     // Fetch historical data with events (dividends, splits) and fundamentals in parallel
     const [historyData, eventsData, fundamentalsData] = await Promise.all([
       fetchFromYahoo(stockInfo.symbol, range, "1d"),
       fetchFromYahoo(stockInfo.symbol, "1y", "1d", true),
       fetchQuoteSummary(stockInfo.symbol)
     ]);
-    
+
     let price = 0;
     let change = 0;
     let changePercent = 0;
     let isMock = true;
     let history: { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[] = [];
     let totalVolume = 0;
-    
+
     if (historyData && historyData.chart.result && !historyData.chart.error) {
       const result = historyData.chart.result[0];
       const timestamps = result.timestamp || [];
@@ -429,7 +425,7 @@ export async function registerRoutes(
       const lows = quote.low || [];
       const closes = quote.close || [];
       const volumes = quote.volume || [];
-      
+
       // Build history array with full OHLCV data
       history = timestamps.map((ts: number, i: number) => {
         if (closes[i] === null) return null;
@@ -443,10 +439,10 @@ export async function registerRoutes(
           volume: volumes[i] || 0
         };
       }).filter((d: any) => d !== null) as { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[];
-      
+
       // Calculate total volume
       totalVolume = volumes.reduce((sum: number, v: number | null) => sum + (v || 0), 0);
-      
+
       // Calculate change from last two trading days
       const validCloses = closes.filter((c: number | null) => c !== null);
       if (validCloses.length >= 2) {
@@ -467,20 +463,20 @@ export async function registerRoutes(
       changePercent = mockData.changePercent;
       history = generateMockOHLCVHistory(days, price);
     }
-    
+
     // Get prices array for technical analysis
     const prices = history.map(h => h.price);
-    
+
     // Get extended analysis data
     const financialRatios = getFinancialRatios(symbol);
     const cashFlowAnalysis = getCashFlowAnalysis(symbol);
     const technicalIndicators = calculateTechnicalIndicators(prices);
     const analystRatings = getAnalystRatings(symbol);
-    
+
     // Extract dividends from events data
     const dividends: { date: string; amount: number }[] = [];
     const splits: { date: string; ratio: string }[] = [];
-    
+
     if (eventsData && eventsData.chart.result?.[0]) {
       const events = (eventsData.chart.result[0] as any).events;
       if (events?.dividends) {
@@ -502,7 +498,7 @@ export async function registerRoutes(
         splits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
     }
-    
+
     // Extract real fundamentals from Yahoo Finance quote summary (use raw values for calculations)
     let realFundamentals: any = null;
     if (fundamentalsData) {
@@ -549,11 +545,11 @@ export async function registerRoutes(
         enterpriseToEbitda: ks?.enterpriseToEbitda?.fmt || "N/A"
       };
     }
-    
+
     // Get latest volume from history
     const lastHistoryVolume = history.length > 0 ? history[history.length - 1].volume : undefined;
     const latestVolume: number = lastHistoryVolume ?? (totalVolume > 0 ? Math.floor(totalVolume / history.length) : 0);
-    
+
     const stock = {
       symbol,
       name: stockInfo.name,
@@ -614,7 +610,7 @@ export async function registerRoutes(
         } : analystRatings
       }
     };
-    
+
     setCache(cacheKey, stock, CACHE_TTL.STOCK_DETAIL);
     res.json(stock);
   });
@@ -630,20 +626,20 @@ export async function registerRoutes(
 
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0];
         const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
         const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
-        
+
         if (closes.length >= 2) {
           const currentPrice = closes[closes.length - 1];
           const previousClose = closes[closes.length - 2];
           const change = currentPrice - previousClose;
           const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
           const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
-          
+
           return {
             symbol: id,
             name: info.name,
@@ -656,7 +652,7 @@ export async function registerRoutes(
           };
         }
       }
-      
+
       return {
         symbol: id,
         name: info.name,
@@ -668,13 +664,13 @@ export async function registerRoutes(
         volume: Math.floor(Math.random() * 5000000)
       };
     });
-    
+
     const stocks = await Promise.all(stockPromises);
-    
+
     const gainers = [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 5);
     const losers = [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
     const volumeLeaders = [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 5);
-    
+
     const result = { gainers, losers, volumeLeaders };
     setCache(cacheKey, result, CACHE_TTL.MOVERS);
     res.json(result);
@@ -691,25 +687,25 @@ export async function registerRoutes(
 
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-        
+
         if (closes.length >= 2) {
           const currentPrice = closes[closes.length - 1];
           const previousClose = closes[closes.length - 2];
           const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-          
+
           return { sector: info.sector, symbol: id, changePercent: Number(changePercent.toFixed(2)), marketCap: getMarketCap(id) };
         }
       }
-      
+
       return { sector: info.sector, symbol: id, changePercent: (Math.random() - 0.5) * 4, marketCap: getMarketCap(id) };
     });
-    
+
     const stocks = await Promise.all(stockPromises);
-    
+
     // Group by sector
     const sectorMap = new Map<string, { totalChange: number; count: number; marketCap: number }>();
     stocks.forEach(stock => {
@@ -721,14 +717,14 @@ export async function registerRoutes(
         marketCap: existing.marketCap + capValue
       });
     });
-    
+
     const sectors = Array.from(sectorMap.entries()).map(([name, data]) => ({
       name,
       changePercent: Number((data.totalChange / data.count).toFixed(2)),
       marketCap: data.marketCap,
       stockCount: data.count
     })).sort((a, b) => b.marketCap - a.marketCap);
-    
+
     setCache(cacheKey, sectors, CACHE_TTL.SECTORS);
     res.json(sectors);
   });
@@ -749,21 +745,21 @@ export async function registerRoutes(
       "Gold": "GC=F",
       "Silver": "SI=F"
     };
-    
+
     const results = await Promise.all(
       Object.entries(symbols).map(async ([name, symbol]) => {
         const data = await fetchFromYahoo(symbol, "5d", "1d");
-        
+
         if (data && data.chart.result && !data.chart.error) {
           const result = data.chart.result[0];
           const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-          
+
           if (closes.length >= 2) {
             const price = closes[closes.length - 1];
             const prevPrice = closes[closes.length - 2];
             const change = price - prevPrice;
             const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
-            
+
             return {
               name,
               symbol,
@@ -774,7 +770,7 @@ export async function registerRoutes(
             };
           }
         }
-        
+
         // Mock data fallback
         const mockPrices: Record<string, number> = {
           "USD/SAR": 3.75, "Brent Crude": 82.45, "WTI Crude": 78.32, "Gold": 2045.50, "Silver": 23.85
@@ -789,7 +785,7 @@ export async function registerRoutes(
         };
       })
     );
-    
+
     setCache(cacheKey, results, CACHE_TTL.COMMODITIES);
     res.json(results);
   });
@@ -805,31 +801,31 @@ export async function registerRoutes(
 
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0];
         const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
         const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
-        
+
         if (closes.length >= 2) {
           const change = closes[closes.length - 1] - closes[closes.length - 2];
           const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
           return { change, volume };
         }
       }
-      
+
       return { change: (Math.random() - 0.5) * 2, volume: Math.floor(Math.random() * 5000000) };
     });
-    
+
     const stocks = await Promise.all(stockPromises);
-    
+
     const advances = stocks.filter(s => s.change > 0).length;
     const declines = stocks.filter(s => s.change < 0).length;
     const unchanged = stocks.filter(s => s.change === 0).length;
     const upVolume = stocks.filter(s => s.change > 0).reduce((sum, s) => sum + s.volume, 0);
     const downVolume = stocks.filter(s => s.change < 0).reduce((sum, s) => sum + s.volume, 0);
-    
+
     const breadthData = {
       advances,
       declines,
@@ -935,7 +931,7 @@ export async function registerRoutes(
         category: "Economy"
       }
     ];
-    
+
     setCache(cacheKey, news, CACHE_TTL.NEWS);
     res.json(news);
   });
@@ -982,29 +978,29 @@ export async function registerRoutes(
   app.get("/api/stocks/:symbol/peers", async (req: Request, res: Response) => {
     const symbol = String(req.params.symbol);
     const stockInfo = STOCK_SYMBOLS[symbol];
-    
+
     if (!stockInfo) {
       res.status(404).json({ error: "Stock not found" });
       return;
     }
-    
+
     // Find peers in the same sector
     const sectorPeers = Object.entries(STOCK_SYMBOLS)
       .filter(([id, info]) => info.sector === stockInfo.sector && id !== symbol)
       .slice(0, 5);
-    
+
     const peerPromises = sectorPeers.map(async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-        
+
         if (closes.length >= 2) {
           const price = closes[closes.length - 1];
           const prevPrice = closes[closes.length - 2];
           const changePercent = prevPrice > 0 ? ((price - prevPrice) / prevPrice) * 100 : 0;
-          
+
           return {
             symbol: id,
             name: info.name,
@@ -1018,7 +1014,7 @@ export async function registerRoutes(
           };
         }
       }
-      
+
       const mockData = getMockStockData(id, info);
       return {
         symbol: id,
@@ -1032,7 +1028,7 @@ export async function registerRoutes(
         ...getFinancialRatios(id)
       };
     });
-    
+
     const peers = await Promise.all(peerPromises);
     res.json(peers);
   });
@@ -1041,22 +1037,22 @@ export async function registerRoutes(
   app.get("/api/stocks/:symbol/history", async (req: Request, res: Response) => {
     const { symbol } = req.params;
     const { range = "max", interval = "1d" } = req.query;
-    
+
     const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
     if (!stockInfo) {
       return res.status(404).json({ error: "Stock not found" });
     }
-    
+
     const data = await fetchFromYahoo(stockInfo.symbol, range as string, interval as string, true);
-    
+
     if (!data || !data.chart.result || data.chart.error) {
       return res.json({ symbol, history: [], message: "No historical data available" });
     }
-    
+
     const result = data.chart.result[0];
     const timestamps = result.timestamp || [];
     const quote = result.indicators?.quote?.[0] || {};
-    
+
     const history = timestamps.map((ts: number, i: number) => ({
       date: new Date(ts * 1000).toISOString().split("T")[0],
       open: quote.open?.[i] ?? null,
@@ -1065,12 +1061,12 @@ export async function registerRoutes(
       close: quote.close?.[i] ?? null,
       volume: quote.volume?.[i] ?? null
     })).filter((h: any) => h.close !== null);
-    
+
     // Extract dividends and splits from events
     const events = (result as any).events;
     const dividends: any[] = [];
     const splits: any[] = [];
-    
+
     if (events?.dividends) {
       Object.values(events.dividends).forEach((div: any) => {
         dividends.push({
@@ -1079,7 +1075,7 @@ export async function registerRoutes(
         });
       });
     }
-    
+
     if (events?.splits) {
       Object.values(events.splits).forEach((split: any) => {
         splits.push({
@@ -1088,7 +1084,7 @@ export async function registerRoutes(
         });
       });
     }
-    
+
     res.json({
       symbol,
       name: stockInfo.name,
@@ -1104,12 +1100,12 @@ export async function registerRoutes(
   // Financial statements endpoint
   app.get("/api/stocks/:symbol/financials", async (req: Request, res: Response) => {
     const { symbol } = req.params;
-    
+
     const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
     if (!stockInfo) {
       return res.status(404).json({ error: "Stock not found" });
     }
-    
+
     try {
       // Fetch comprehensive financial data from Yahoo Finance
       const modules = [
@@ -1124,43 +1120,43 @@ export async function registerRoutes(
         "earningsHistory",
         "earningsTrend"
       ].join(",");
-      
+
       const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
       const response = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
       });
-      
+
       if (!response.ok) {
         return res.json({ symbol, financials: null, message: "Financial data not available" });
       }
-      
+
       const data = await response.json();
       const result = data.quoteSummary?.result?.[0];
-      
+
       if (!result) {
         return res.json({ symbol, financials: null, message: "No financial data found" });
       }
-      
+
       // Process income statements
       const incomeAnnual = result.incomeStatementHistory?.incomeStatementHistory || [];
       const incomeQuarterly = result.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-      
+
       // Process balance sheets
       const balanceAnnual = result.balanceSheetHistory?.balanceSheetStatements || [];
       const balanceQuarterly = result.balanceSheetHistoryQuarterly?.balanceSheetStatements || [];
-      
+
       // Process cash flows
       const cashflowAnnual = result.cashflowStatementHistory?.cashflowStatements || [];
       const cashflowQuarterly = result.cashflowStatementHistoryQuarterly?.cashflowStatements || [];
-      
+
       // Process earnings history
       const earningsHistory = result.earningsHistory?.history || [];
       const earningsTrend = result.earningsTrend?.trend || [];
-      
+
       // Key statistics
       const keyStats = result.defaultKeyStatistics || {};
       const financialData = result.financialData || {};
-      
+
       res.json({
         symbol,
         name: stockInfo.name,
@@ -1270,28 +1266,28 @@ export async function registerRoutes(
   app.get("/api/export/:symbol/:type", async (req: Request, res: Response) => {
     const { symbol, type } = req.params;
     const { range = "1y" } = req.query;
-    
+
     const stockInfo = STOCK_SYMBOLS[symbol as keyof typeof STOCK_SYMBOLS];
     if (!stockInfo) {
       return res.status(404).json({ error: "Stock not found" });
     }
-    
+
     try {
       let csvContent = "";
       let filename = "";
-      
+
       if (type === "prices") {
         // Fetch price history
         const data = await fetchFromYahoo(stockInfo.symbol, range as string, "1d", true);
-        
+
         if (!data || !data.chart.result) {
           return res.status(404).json({ error: "No price data available" });
         }
-        
+
         const result = data.chart.result[0];
         const timestamps = result.timestamp || [];
         const quote = result.indicators?.quote?.[0] || {};
-        
+
         csvContent = "Date,Open,High,Low,Close,Volume\n";
         timestamps.forEach((ts: number, i: number) => {
           const date = new Date(ts * 1000).toISOString().split("T")[0];
@@ -1304,12 +1300,12 @@ export async function registerRoutes(
             csvContent += `${date},${open},${high},${low},${close},${volume}\n`;
           }
         });
-        
+
         filename = `${symbol}_prices_${range}.csv`;
-        
+
       } else if (type === "dividends") {
         const data = await fetchFromYahoo(stockInfo.symbol, "10y", "1d", true);
-        
+
         csvContent = "Date,Amount\n";
         if (data?.chart.result?.[0]) {
           const events = (data.chart.result[0] as any).events;
@@ -1322,9 +1318,9 @@ export async function registerRoutes(
               });
           }
         }
-        
+
         filename = `${symbol}_dividends.csv`;
-        
+
       } else if (type === "financials") {
         // Fetch financial statements
         const modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory";
@@ -1332,15 +1328,15 @@ export async function registerRoutes(
         const response = await fetch(url, {
           headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
         });
-        
+
         if (!response.ok) {
           return res.status(404).json({ error: "Financial data not available" });
         }
-        
+
         const finData = await response.json();
         const result = finData.quoteSummary?.result?.[0];
         const incomeHistory = result?.incomeStatementHistory?.incomeStatementHistory || [];
-        
+
         csvContent = "Fiscal Year End,Total Revenue,Gross Profit,Operating Income,Net Income\n";
         incomeHistory.forEach((stmt: any) => {
           csvContent += `${stmt.endDate?.fmt || ""},`;
@@ -1349,17 +1345,17 @@ export async function registerRoutes(
           csvContent += `${stmt.operatingIncome?.raw || ""},`;
           csvContent += `${stmt.netIncome?.raw || ""}\n`;
         });
-        
+
         filename = `${symbol}_financials.csv`;
-        
+
       } else {
         return res.status(400).json({ error: "Invalid export type. Use: prices, dividends, or financials" });
       }
-      
+
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(csvContent);
-      
+
     } catch (error) {
       console.error(`Error exporting ${type} for ${symbol}:`, error);
       res.status(500).json({ error: "Export failed" });
@@ -1377,11 +1373,11 @@ export async function registerRoutes(
 
     const today = new Date();
     const earnings: any[] = [];
-    
+
     Object.entries(STOCK_SYMBOLS).forEach(([symbol, info]) => {
       const futureDate = new Date(today);
       futureDate.setDate(today.getDate() + Math.floor(Math.random() * 60));
-      
+
       earnings.push({
         symbol,
         name: info.name,
@@ -1389,19 +1385,19 @@ export async function registerRoutes(
         date: futureDate.toISOString().split("T")[0],
         estimatedEPS: Number((Math.random() * 5 + 0.5).toFixed(2)),
       });
-      
+
       for (let i = 1; i <= 4; i++) {
         const pastDate = new Date(today);
         pastDate.setMonth(today.getMonth() - (i * 3));
         const results: ("beat" | "miss" | "meet")[] = ["beat", "miss", "meet"];
         const result = results[Math.floor(Math.random() * 3)];
         const estimatedEPS = Number((Math.random() * 5 + 0.5).toFixed(2));
-        const actualEPS = result === "beat" 
+        const actualEPS = result === "beat"
           ? Number((estimatedEPS * (1 + Math.random() * 0.2)).toFixed(2))
           : result === "miss"
-          ? Number((estimatedEPS * (1 - Math.random() * 0.2)).toFixed(2))
-          : estimatedEPS;
-        
+            ? Number((estimatedEPS * (1 - Math.random() * 0.2)).toFixed(2))
+            : estimatedEPS;
+
         earnings.push({
           symbol,
           name: info.name,
@@ -1413,9 +1409,9 @@ export async function registerRoutes(
         });
       }
     });
-    
+
     earnings.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
+
     setCache(cacheKey, earnings, CACHE_TTL.NEWS);
     res.json(earnings);
   });
@@ -1424,7 +1420,7 @@ export async function registerRoutes(
   app.get("/api/market/dip-finder", async (req: Request, res: Response) => {
     const minDip = parseInt(req.query.minDip as string) || 10;
     const maxDip = parseInt(req.query.maxDip as string) || 50;
-    
+
     const cacheKey = `market:dip-finder:${minDip}:${maxDip}`;
     const cached = getCached<any[]>(cacheKey);
     if (cached) {
@@ -1434,16 +1430,16 @@ export async function registerRoutes(
 
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([symbol, info]) => {
       const data = await fetchFromYahoo(info.symbol, "1y", "1d");
-      
+
       if (data && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-        
+
         if (closes.length > 0) {
           const currentPrice = closes[closes.length - 1];
           const high52Week = Math.max(...closes);
           const dipPercent = ((high52Week - currentPrice) / high52Week) * 100;
-          
+
           return {
             symbol,
             name: info.name,
@@ -1455,7 +1451,7 @@ export async function registerRoutes(
           };
         }
       }
-      
+
       const basePrice = 50 + Math.random() * 100;
       const high = basePrice * (1 + Math.random() * 0.3);
       const dip = Math.random() * 40 + 5;
@@ -1469,12 +1465,12 @@ export async function registerRoutes(
         dipPercent: Number(dip.toFixed(2)),
       };
     });
-    
+
     const allStocks = await Promise.all(stockPromises);
     const filteredStocks = allStocks
       .filter(s => s.dipPercent >= minDip && s.dipPercent <= maxDip)
       .sort((a, b) => b.dipPercent - a.dipPercent);
-    
+
     setCache(cacheKey, filteredStocks, 60000);
     res.json(filteredStocks);
   });
@@ -1483,7 +1479,7 @@ export async function registerRoutes(
   app.get("/api/portfolio", async (req: Request, res: Response) => {
     try {
       const items = await storage.getPortfolio();
-      
+
       const holdingsPromises = items.map(async (item) => {
         const stockInfo = STOCK_SYMBOLS[item.symbol];
         if (!stockInfo) {
@@ -1501,21 +1497,21 @@ export async function registerRoutes(
             gainPercent: 0,
           };
         }
-        
+
         let currentPrice = 0;
         const data = await fetchFromYahoo(stockInfo.symbol, "1d", "1d");
-        
+
         if (data && data.chart.result && !data.chart.error) {
           currentPrice = data.chart.result[0].meta.regularMarketPrice || 0;
         } else {
           currentPrice = item.avgCost * (1 + (Math.random() - 0.5) * 0.1);
         }
-        
+
         const currentValue = item.shares * currentPrice;
         const totalCost = item.shares * item.avgCost;
         const gain = currentValue - totalCost;
         const gainPercent = totalCost > 0 ? (gain / totalCost) * 100 : 0;
-        
+
         return {
           symbol: item.symbol,
           name: stockInfo.name,
@@ -1530,7 +1526,7 @@ export async function registerRoutes(
           gainPercent: Number(gainPercent.toFixed(2)),
         };
       });
-      
+
       const holdings = await Promise.all(holdingsPromises);
       res.json(holdings);
     } catch (error) {
@@ -1565,8 +1561,112 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Saudi Exchange Proxy Routes ──────────────────────────────────────────
+  // These routes proxy requests to saudiexchange.sa with browser-like headers
+  // to bypass CORS restrictions and server-side 403 blocks.
+
+  /** GET /api/saudi-exchange/market
+   *  Returns all listed equities with live prices from saudiexchange.sa.
+   *  Falls back to Yahoo Finance data for the known stock universe if the
+   *  Saudi Exchange API is unavailable.
+   */
+  app.get("/api/saudi-exchange/market", async (_req: Request, res: Response) => {
+    const cacheKey = "saudi-exchange:market";
+    const cached = getCached<any[]>(cacheKey);
+    if (cached) { res.json(cached); return; }
+
+    const seData = await fetchSaudiExchangeMainMarket();
+
+    if (seData && seData.length > 0) {
+      // Enrich with Arabic names and sector from TADAWUL_STOCKS where possible
+      const enriched = seData.map(stock => {
+        const meta = TADAWUL_STOCKS[stock.symbol] ||
+          Object.values(TADAWUL_STOCKS).find(s => s.symbol === stock.symbol);
+        return {
+          ...stock,
+          companyNameAr: meta?.nameAr || stock.companyNameAr,
+          sector: meta?.sector || stock.sector,
+          yahooSymbol: meta?.yahooSymbol || `${stock.symbol}.SR`,
+          source: "saudi-exchange",
+        };
+      });
+      setCache(cacheKey, enriched, CACHE_TTL.STOCKS_LIST);
+      res.json(enriched);
+      return;
+    }
+
+    // Fallback: return basic stock info from our known universe
+    const fallback = Object.values(TADAWUL_STOCKS).map(s => ({
+      symbol: s.symbol,
+      companyNameEn: s.name,
+      companyNameAr: s.nameAr,
+      sector: s.sector,
+      yahooSymbol: s.yahooSymbol,
+      lastPrice: 0,
+      change: 0,
+      changePercent: 0,
+      volume: 0,
+      source: "fallback",
+    }));
+    res.json(fallback);
+  });
+
+  /** GET /api/saudi-exchange/tasi
+   *  Returns live TASI index value from saudiexchange.sa.
+   */
+  app.get("/api/saudi-exchange/tasi", async (_req: Request, res: Response) => {
+    const cacheKey = "saudi-exchange:tasi";
+    const cached = getCached<any>(cacheKey);
+    if (cached) { res.json(cached); return; }
+
+    const tasi = await fetchSaudiExchangeTASI();
+    if (tasi) {
+      setCache(cacheKey, tasi, CACHE_TTL.TASI);
+      res.json(tasi);
+    } else {
+      // Fallback to Yahoo Finance
+      const yahooData = await fetchFromYahoo("^TASI.SR", "1d", "1d");
+      if (yahooData?.chart?.result?.[0]) {
+        const meta = yahooData.chart.result[0].meta;
+        res.json({
+          name: "TASI",
+          value: meta.regularMarketPrice,
+          change: meta.regularMarketChange || 0,
+          changePercent: meta.regularMarketChangePercent || 0,
+          updatedAt: new Date().toISOString(),
+          source: "yahoo",
+        });
+      } else {
+        res.status(503).json({ error: "TASI data unavailable" });
+      }
+    }
+  });
+
+  /** GET /api/saudi-exchange/status
+   *  Returns current market status (open/closed/pre-open).
+   */
+  app.get("/api/saudi-exchange/status", async (_req: Request, res: Response) => {
+    const cacheKey = "saudi-exchange:status";
+    const cached = getCached<any>(cacheKey);
+    if (cached) { res.json(cached); return; }
+
+    const status = await fetchMarketStatus();
+    if (status) {
+      setCache(cacheKey, status, 60000); // 1 min cache
+      res.json(status);
+    } else {
+      // Derive status from current Riyadh time (UTC+3)
+      const now = new Date();
+      const riyadhHour = (now.getUTCHours() + 3) % 24;
+      const isWeekend = [5, 6].includes(now.getUTCDay()); // Fri-Sat
+      const isOpen = !isWeekend && riyadhHour >= 10 && riyadhHour < 15;
+      res.json({ status: isOpen ? "open" : "closed", message: isOpen ? "Market is open" : "Market is closed" });
+    }
+  });
+
   return httpServer;
 }
+
 
 // Helper functions
 function formatVolume(volume: number): string {
@@ -1583,7 +1683,7 @@ function getMockIndexData(name: string) {
     Banks: { value: 8240.80, change: -30.40, changePercent: -0.37 },
     Bonds: { value: 922.69, change: 0.15, changePercent: 0.02 }
   };
-  
+
   const data = mockData[name] || { value: 0, change: 0, changePercent: 0 };
   return { name, ...data, isMock: true };
 }
@@ -1597,9 +1697,9 @@ function getMockStockData(id: string, info: { name: string; nameAr: string; sect
     "1180": { price: 38.90, change: -0.30, changePercent: -0.77 },
     "1150": { price: 32.15, change: 0.45, changePercent: 1.42 }
   };
-  
+
   const priceData = mockPrices[id] || { price: 0, change: 0, changePercent: 0 };
-  
+
   return {
     symbol: id,
     name: info.name,
@@ -1653,7 +1753,7 @@ function getDividendYield(symbol: string): number {
 
 function getBaseRevenue(symbol: string): number {
   const revenues: Record<string, number> = {
-    "2222": 1800, "1120": 120, "2010": 180, 
+    "2222": 1800, "1120": 120, "2010": 180,
     "7010": 65, "1180": 80, "1150": 25
   };
   return revenues[symbol] || 50;
@@ -1675,14 +1775,14 @@ function generateMockHistory(days: number, basePrice: number = 11800): { date: s
   const history = [];
   let price = basePrice;
   const now = new Date();
-  
+
   for (let i = days; i >= 0; i--) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
     const dayOfWeek = date.getDay();
-    
+
     if (dayOfWeek === 5 || dayOfWeek === 6) continue;
-    
+
     const change = (Math.random() - 0.5) * (basePrice * 0.03);
     price += change;
     history.push({
@@ -1690,7 +1790,7 @@ function generateMockHistory(days: number, basePrice: number = 11800): { date: s
       price: Number(price.toFixed(2))
     });
   }
-  
+
   return history;
 }
 
@@ -1698,21 +1798,21 @@ function generateMockOHLCVHistory(days: number, basePrice: number = 100): { date
   const history = [];
   let price = basePrice;
   const now = new Date();
-  
+
   for (let i = days; i >= 0; i--) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
     const dayOfWeek = date.getDay();
-    
+
     if (dayOfWeek === 5 || dayOfWeek === 6) continue;
-    
+
     const volatility = basePrice * 0.02;
     const open = Number((price + (Math.random() - 0.5) * volatility).toFixed(2));
     const close = Number((open + (Math.random() - 0.5) * volatility * 2).toFixed(2));
     const high = Number((Math.max(open, close) + Math.random() * volatility).toFixed(2));
     const low = Number((Math.min(open, close) - Math.random() * volatility).toFixed(2));
     const volume = Math.floor(1000000 + Math.random() * 5000000);
-    
+
     price = close;
     history.push({
       date: date.toISOString().split('T')[0],
@@ -1724,7 +1824,7 @@ function generateMockOHLCVHistory(days: number, basePrice: number = 100): { date
       volume
     });
   }
-  
+
   return history;
 }
 
@@ -1756,19 +1856,19 @@ function calculateEMA(prices: number[], period: number): number | null {
 
 function calculateRSI(prices: number[], period: number = 14): number | null {
   if (prices.length < period + 1) return null;
-  
+
   let gains = 0;
   let losses = 0;
-  
+
   for (let i = 1; i <= period; i++) {
     const change = prices[i] - prices[i - 1];
     if (change > 0) gains += change;
     else losses -= change;
   }
-  
+
   let avgGain = gains / period;
   let avgLoss = losses / period;
-  
+
   for (let i = period + 1; i < prices.length; i++) {
     const change = prices[i] - prices[i - 1];
     if (change > 0) {
@@ -1779,7 +1879,7 @@ function calculateRSI(prices: number[], period: number = 14): number | null {
       avgLoss = (avgLoss * (period - 1) - change) / period;
     }
   }
-  
+
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   return Number((100 - (100 / (1 + rs))).toFixed(2));
@@ -1788,12 +1888,12 @@ function calculateRSI(prices: number[], period: number = 14): number | null {
 function calculateMACD(prices: number[]): { macd: number; signal: number; histogram: number } | null {
   const ema12 = calculateEMA(prices, 12);
   const ema26 = calculateEMA(prices, 26);
-  
+
   if (ema12 === null || ema26 === null) return null;
-  
+
   const macd = Number((ema12 - ema26).toFixed(2));
   const macdLine: number[] = [];
-  
+
   for (let i = 26; i <= prices.length; i++) {
     const e12 = calculateEMA(prices.slice(0, i), 12);
     const e26 = calculateEMA(prices.slice(0, i), 26);
@@ -1801,10 +1901,10 @@ function calculateMACD(prices: number[]): { macd: number; signal: number; histog
       macdLine.push(e12 - e26);
     }
   }
-  
+
   const signal = macdLine.length >= 9 ? Number((macdLine.slice(-9).reduce((a, b) => a + b, 0) / 9).toFixed(2)) : macd;
   const histogram = Number((macd - signal).toFixed(2));
-  
+
   return { macd, signal, histogram };
 }
 
@@ -1848,7 +1948,7 @@ function getFinancialRatios(symbol: string) {
     "4001": { roe: 15.8, roa: 8.2, pb: 3.5, ps: 0.8, debtToEquity: 0.25, currentRatio: 1.35, quickRatio: 0.92, grossMargin: 25.2, operatingMargin: 8.5, netMargin: 5.2, revenueGrowth: 12.5, earningsGrowth: 18.2, beta: 0.88, week52High: 8.50, week52Low: 5.20 },
     "4030": { roe: 12.2, roa: 5.5, pb: 1.8, ps: 1.5, debtToEquity: 0.55, currentRatio: 1.25, quickRatio: 1.08, grossMargin: 28.5, operatingMargin: 15.8, netMargin: 10.5, revenueGrowth: 18.2, earningsGrowth: 25.5, beta: 1.18, week52High: 35.00, week52Low: 24.50 }
   };
-  
+
   return ratios[symbol] || {
     roe: 10.0, roa: 5.0, pb: 1.5, ps: 1.0, debtToEquity: 0.3, currentRatio: 1.2, quickRatio: 1.0,
     grossMargin: 30.0, operatingMargin: 15.0, netMargin: 10.0, revenueGrowth: 5.0, earningsGrowth: 5.0,
@@ -1861,11 +1961,11 @@ function getCashFlowAnalysis(symbol: string) {
   const baseRevenue = getBaseRevenue(symbol);
   const marketCapStr = getMarketCap(symbol);
   const marketCapNum = parseFloat(marketCapStr.replace(/[TB]/g, '')) * (marketCapStr.includes('T') ? 1000 : 1);
-  
+
   const cfo = baseRevenue * 0.28;
   const fcf = baseRevenue * 0.18;
   const capex = cfo - fcf;
-  
+
   return {
     operatingCashFlow: `${cfo.toFixed(1)}B`,
     freeCashFlow: `${fcf.toFixed(1)}B`,
@@ -1887,6 +1987,6 @@ function getAnalystRatings(symbol: string) {
     "1180": { buy: 14, hold: 4, sell: 1, targetPrice: 48.50, consensus: "Strong Buy" },
     "1150": { buy: 10, hold: 6, sell: 2, targetPrice: 32.00, consensus: "Buy" }
   };
-  
+
   return ratings[symbol] || { buy: 5, hold: 5, sell: 2, targetPrice: 0, consensus: "Hold" };
 }
