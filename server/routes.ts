@@ -8,7 +8,7 @@ import {
   fetchMarketStatus,
 } from "./saudiExchangeApi";
 
-const YAHOO_FINANCE_BASE = "https://query1.finance.yahoo.com/v8/finance/chart";
+const YAHOO_FINANCE_BASE = "https://query2.finance.yahoo.com/v8/finance/chart";
 const YAHOO_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   "X-API-KEY": "dj0yJmk9U2FWNjJ3UUFlNWltJmQ9WVdrOVVtdzFWV1o0TW5vbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PTEw",
@@ -166,7 +166,7 @@ async function fetchFromYahoo(symbol: string, range: string = "1d", interval: st
 async function fetchQuoteSummary(symbol: string): Promise<any | null> {
   try {
     const modules = "summaryProfile,financialData,defaultKeyStatistics,earningsHistory,incomeStatementHistory";
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
     const response = await fetch(url, {
       headers: YAHOO_HEADERS
     });
@@ -1367,7 +1367,7 @@ export async function registerRoutes(
       } else if (type === "financials") {
         // Fetch financial statements
         const modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory";
-        const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
+        const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
         const response = await fetch(url, {
           headers: YAHOO_HEADERS
         });
