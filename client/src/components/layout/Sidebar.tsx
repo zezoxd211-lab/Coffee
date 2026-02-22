@@ -25,9 +25,9 @@ export function Sidebar() {
   const { t, language, setLanguage, isRtl } = useLanguage();
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-card text-card-foreground">
-      <div className="flex h-16 items-center border-b px-6">
-        <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight">
+    <div className="flex h-full w-64 flex-col bg-transparent text-white">
+      <div className="flex h-16 items-center border-b border-white/10 px-6">
+        <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-white/80 transition-colors">
           <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
           <span>Tadawul Insight</span>
         </Link>
@@ -39,10 +39,10 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/10 hover:text-white",
                 location === item.href || (item.href !== "/dashboard" && location.startsWith(item.href))
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground"
+                  ? "bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                  : "text-white/60"
               )}
             >
               <item.icon className="h-4 w-4" />
@@ -51,10 +51,10 @@ export function Sidebar() {
           ))}
         </nav>
       </div>
-      <div className="p-4 border-t space-y-4">
+      <div className="p-4 border-t border-white/10 space-y-4 relative z-10">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="w-full justify-start gap-2">
+            <Button variant="outline" size="sm" className="w-full justify-start gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white">
               <Globe className="h-4 w-4" />
               {language === "en" ? "English" : "العربية"}
             </Button>
@@ -65,10 +65,10 @@ export function Sidebar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="rounded-lg bg-accent/50 p-4 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground mb-1">{t("pro_plan")}</p>
+        <div className="rounded-lg bg-black/40 border border-white/10 p-4 text-xs text-white/70 backdrop-blur-md">
+          <p className="font-medium text-white mb-1">{t("pro_plan")}</p>
           <p className="mb-3">{t("pro_desc")}</p>
-          <Button size="sm" className="w-full text-xs" variant="default">{t("upgrade")}</Button>
+          <Button size="sm" className="w-full text-xs shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.2)]" variant="default">{t("upgrade")}</Button>
         </div>
       </div>
     </div>
@@ -86,10 +86,10 @@ export function MobileSidebar() {
           <Menu className="h-5 w-5" />
         </Button>
       </SheetTrigger>
-      <SheetContent side={isRtl ? "right" : "left"} className="p-0 w-64">
-        <div className="flex h-full w-full flex-col bg-card text-card-foreground">
-          <div className="flex h-16 items-center border-b px-6">
-            <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight">
+      <SheetContent side={isRtl ? "right" : "left"} className="p-0 w-64 border-r border-white/10 bg-black/80 backdrop-blur-2xl text-white">
+        <div className="flex h-full w-full flex-col bg-transparent">
+          <div className="flex h-16 items-center border-b border-white/10 px-6">
+            <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-white/80 transition-colors">
               <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
               <span>Tadawul Insight</span>
             </Link>
@@ -101,10 +101,10 @@ export function MobileSidebar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/10 hover:text-white",
                     location === item.href || (item.href !== "/dashboard" && location.startsWith(item.href))
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground"
+                      ? "bg-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                      : "text-white/60"
                   )}
                 >
                   <item.icon className="h-4 w-4" />
@@ -113,11 +113,11 @@ export function MobileSidebar() {
               ))}
             </nav>
           </div>
-          <div className="p-4 border-t">
+          <div className="p-4 border-t border-white/10">
             <Button
               variant="outline"
               size="sm"
-              className="w-full justify-start gap-2"
+              className="w-full justify-start gap-2 bg-transparent border-white/20 text-white hover:bg-white/10 hover:text-white"
               onClick={() => setLanguage(language === "en" ? "ar" : "en")}
             >
               <Globe className="h-4 w-4" />
