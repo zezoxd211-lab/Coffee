@@ -40,15 +40,74 @@ function setCache<T>(key: string, data: T, ttlMs: number = 30000): void {
 // Cache TTLs in milliseconds
 const CACHE_TTL = {
   INDICES: 30000,        // 30 seconds
-  STOCKS_LIST: 30000,    // 30 seconds
+  STOCKS_LIST: 300000,   // 5 minutes (was 30s — 100+ Yahoo calls need a long cache)
   STOCK_DETAIL: 30000,   // 30 seconds
-  MOVERS: 30000,         // 30 seconds
-  SECTORS: 60000,        // 1 minute
+  MOVERS: 60000,         // 1 minute
+  SECTORS: 120000,       // 2 minutes
   COMMODITIES: 30000,    // 30 seconds
   TASI: 30000,           // 30 seconds
   TASI_HISTORY: 120000,  // 2 minutes
   NEWS: 300000,          // 5 minutes
 };
+
+/**
+ * Run async tasks with a maximum concurrency to avoid rate-limiting.
+ * e.g. runWithConcurrency(5, items, item => fetchSomething(item))
+ */
+async function runWithConcurrency<T, R>(
+  concurrency: number,
+  items: T[],
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Core 30 highest-liquidity Tadawul stocks used for dashboard bulk operations
+ * (movers, breadth, sectors). Kept small to avoid Yahoo Finance rate limiting.
+ */
+const DASHBOARD_SYMBOLS = [
+  "2222", // Saudi Aramco
+  "1120", // Al Rajhi Bank
+  "1180", // SNB
+  "1150", // Alinma Bank
+  "1010", // Riyad Bank
+  "1050", // SABB
+  "1060", // Banque Saudi Fransi
+  "1080", // Arab National Bank
+  "1020", // Bank AlJazira
+  "1140", // Al Bilad Bank
+  "2010", // SABIC
+  "2020", // SABIC Agri-Nutrients
+  "1211", // Ma'aden
+  "2050", // SAFCO
+  "2060", // Tasnee
+  "2070", // Saudi Kayan
+  "7010", // STC
+  "7020", // Mobily
+  "7030", // Zain KSA
+  "5110", // SEC
+  "2222", // (already added — de-dup harmless)
+  "4300", // Dar Al Arkan
+  "4030", // Bahri
+  "2380", // Petro Rabigh
+  "2381", // Arabian Drilling
+  "4007", // Dr. Sulaiman Al Habib
+  "4003", // Extra (United Electronics)
+  "4001", // Abdullah Al Othaim
+  "8010", // Tawuniya
+  "8180", // BUPA Arabia
+].filter((v, i, a) => a.indexOf(v) === i); // de-duplicate
 
 interface YahooChartResult {
   chart: {
@@ -305,78 +364,61 @@ export async function registerRoutes(
     res.json(indices);
   });
 
-  // Get stocks list with real-time data from Yahoo Finance
-  app.get("/api/stocks", async (req: Request, res: Response) => {
+  // Get stocks list with real-time data
+  // IMPORTANT: only fetch live prices for DASHBOARD_SYMBOLS (top 30 liquid stocks).
+  // The rest of the catalog is returned immediately with metadata + mock prices.
+  // This prevents Yahoo Finance rate-limiting that broke the dashboard.
+  app.get("/api/stocks", async (_req: Request, res: Response) => {
     const cacheKey = "stocks:list";
     const cached = getCached<any[]>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
+    if (cached) { res.json(cached); return; }
 
-    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
-      // Use 5d range to get proper previous close data
+    // Fetch live prices for the top 30 stocks with concurrency=5
+    const liveEntries = DASHBOARD_SYMBOLS
+      .map(id => [id, STOCK_SYMBOLS[id]] as [string, typeof STOCK_SYMBOLS[string]])
+      .filter(([, info]) => !!info);
+
+    const livePrices = await runWithConcurrency(5, liveEntries, async ([id, info]) => {
       const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-
-      if (data && data.chart.result && !data.chart.error) {
+      if (data?.chart?.result?.[0] && !data.chart.error) {
         const result = data.chart.result[0];
-        const quoteData = result.indicators?.quote?.[0]?.close;
-
-        if (quoteData && Array.isArray(quoteData)) {
-          const closes = quoteData.filter((c: number | null) => c !== null);
-
-          if (closes.length >= 2) {
-            const currentPrice = closes[closes.length - 1];
-            const previousClose = closes[closes.length - 2];
-            const change = currentPrice - previousClose;
-            const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-
-            return {
-              symbol: id,
-              name: info.name,
-              nameAr: info.nameAr,
-              sector: info.sector,
-              price: Number(currentPrice.toFixed(2)),
-              change: Number(change.toFixed(2)),
-              changePercent: Number(changePercent.toFixed(2)),
-              marketCap: getMarketCap(id),
-              pe: getPE(id),
-              eps: getEPS(id),
-              dividendYield: getDividendYield(id),
-              volume: "N/A",
-              isMock: false
-            };
-          }
+        const closes = (result.indicators?.quote?.[0]?.close || []).filter((c: number | null) => c !== null);
+        if (closes.length >= 1) {
+          const currentPrice = closes[closes.length - 1];
+          const previousClose = closes.length >= 2 ? closes[closes.length - 2] : (result.meta.chartPreviousClose || currentPrice);
+          const change = currentPrice - previousClose;
+          const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+          return {
+            symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
+            price: Number(currentPrice.toFixed(2)), change: Number(change.toFixed(2)),
+            changePercent: Number(changePercent.toFixed(2)),
+            marketCap: getMarketCap(id), pe: getPE(id), eps: getEPS(id),
+            dividendYield: getDividendYield(id), volume: "N/A", isMock: false,
+          };
         }
-
-        // Fallback to meta data
-        const currentPrice = result.meta.regularMarketPrice;
+        const currentPrice = result.meta.regularMarketPrice || 0;
         const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-
         return {
-          symbol: id,
-          name: info.name,
-          nameAr: info.nameAr,
-          sector: info.sector,
-          price: Number(currentPrice.toFixed(2)),
-          change: Number(change.toFixed(2)),
+          symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
+          price: Number(currentPrice.toFixed(2)), change: Number(change.toFixed(2)),
           changePercent: Number(changePercent.toFixed(2)),
-          marketCap: getMarketCap(id),
-          pe: getPE(id),
-          eps: getEPS(id),
-          dividendYield: getDividendYield(id),
-          volume: "N/A",
-          isMock: false
+          marketCap: getMarketCap(id), pe: getPE(id), eps: getEPS(id),
+          dividendYield: getDividendYield(id), volume: "N/A", isMock: false,
         };
       }
-
-      // Return mock data if API fails
       return getMockStockData(id, info);
     });
 
-    const stocks = await Promise.all(stockPromises);
+    // Build a Map for quick lookup
+    const livePriceMap = new Map(livePrices.map(s => [s.symbol, s]));
+
+    // Return the full catalog: live data for top 30, metadata for the rest
+    const stocks = Object.entries(STOCK_SYMBOLS).map(([id, info]) => {
+      return livePriceMap.get(id) || getMockStockData(id, info);
+    });
+
     setCache(cacheKey, stocks, CACHE_TTL.STOCKS_LIST);
     res.json(stocks);
   });
@@ -799,26 +841,26 @@ export async function registerRoutes(
       return;
     }
 
-    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+    const dashEntries = DASHBOARD_SYMBOLS
+      .map(id => [id, STOCK_SYMBOLS[id]] as [string, typeof STOCK_SYMBOLS[string]])
+      .filter(([, info]) => !!info);
 
-      if (data && data.chart.result && !data.chart.error) {
+    const stocks = await runWithConcurrency(5, dashEntries, async ([id, info]) => {
+      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      if (data?.chart?.result?.[0] && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0];
         const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
         const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
-
         if (closes.length >= 2) {
           const change = closes[closes.length - 1] - closes[closes.length - 2];
           const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
           return { change, volume };
         }
       }
-
       return { change: (Math.random() - 0.5) * 2, volume: Math.floor(Math.random() * 5000000) };
     });
 
-    const stocks = await Promise.all(stockPromises);
 
     const advances = stocks.filter(s => s.change > 0).length;
     const declines = stocks.filter(s => s.change < 0).length;
