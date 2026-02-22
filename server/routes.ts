@@ -11,17 +11,105 @@ import {
 // ─── Yahoo Finance Native Fetch Bridge ───────────────────────────────────────
 // Replaces the old Python/yfinance bridge. Uses Yahoo Finance's undocumented
 // v8 chart and v10 quoteSummary APIs directly via Node fetch().
-// This works in Vercel serverless (no Python needed).
-
-const YF_HEADERS: Record<string, string> = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  Accept: "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
-};
+// Includes cookie+crumb auth, required for Vercel/server IPs to avoid 401/403.
 
 const YF_BASE = "https://query1.finance.yahoo.com";
-const YF_BASE2 = "https://query2.finance.yahoo.com"; // fallback
+const YF_BASE2 = "https://query2.finance.yahoo.com";
+
+const YF_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+
+// Crumb state — cached across requests within the same serverless invocation
+let yfCrumb: string | null = null;
+let yfCookie: string | null = null;
+let yfCrumbExpiry = 0;
+
+async function getYFCrumb(): Promise<{ crumb: string; cookie: string } | null> {
+  const now = Date.now();
+  // Cache crumb for 30 minutes
+  if (yfCrumb && yfCookie && now < yfCrumbExpiry) {
+    return { crumb: yfCrumb, cookie: yfCookie };
+  }
+
+  try {
+    // Step 1: Hit finance.yahoo.com to get the consent/session cookie
+    const consentRes = await fetch("https://finance.yahoo.com", {
+      headers: {
+        "User-Agent": YF_UA,
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+
+    // Grab all Set-Cookie headers
+    const rawCookies = consentRes.headers.get("set-cookie") || "";
+    // Parse cookies into a simple header string
+    const cookieStr = rawCookies
+      .split(",")
+      .map((c) => c.split(";")[0].trim())
+      .filter(Boolean)
+      .join("; ");
+
+    if (!cookieStr) {
+      console.warn("YF: no cookies received from finance.yahoo.com");
+    }
+
+    // Step 2: Fetch the crumb using the cookie
+    const crumbRes = await fetch(`${YF_BASE}/v1/test/getcrumb`, {
+      headers: {
+        "User-Agent": YF_UA,
+        Accept: "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        Cookie: cookieStr || "",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!crumbRes.ok) {
+      // Try BASE2
+      const crumbRes2 = await fetch(`${YF_BASE2}/v1/test/getcrumb`, {
+        headers: {
+          "User-Agent": YF_UA,
+          Accept: "*/*",
+          Cookie: cookieStr || "",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!crumbRes2.ok) {
+        console.error("YF: failed to get crumb, status", crumbRes2.status);
+        return null;
+      }
+      const crumb2 = await crumbRes2.text();
+      yfCrumb = crumb2.trim();
+      yfCookie = cookieStr;
+      yfCrumbExpiry = now + 28 * 60 * 1000; // 28 minutes
+      return { crumb: yfCrumb, cookie: yfCookie };
+    }
+
+    const crumb = await crumbRes.text();
+    yfCrumb = crumb.trim();
+    yfCookie = cookieStr;
+    yfCrumbExpiry = now + 28 * 60 * 1000; // 28 minutes
+    console.log("YF: crumb obtained:", yfCrumb.substring(0, 12) + "...");
+    return { crumb: yfCrumb, cookie: yfCookie };
+  } catch (err) {
+    console.error("YF: crumb fetch exception:", err);
+    return null;
+  }
+}
+
+function buildYFHeaders(cookie?: string): Record<string, string> {
+  return {
+    "User-Agent": YF_UA,
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    ...(cookie ? { Cookie: cookie } : {}),
+  };
+}
+
 
 // Simple in-memory cache with TTL
 interface CacheEntry<T> {
@@ -155,15 +243,26 @@ async function fetchFromYahoo(
   interval: string = "1d",
   includeEvents: boolean = false
 ): Promise<YahooChartResult | null> {
+  const auth = await getYFCrumb();
+  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
   const events = includeEvents ? "&events=div%2Csplit" : "";
-  const url = `${YF_BASE}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${events}`;
-  const url2 = `${YF_BASE2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${events}`;
+  const headers = buildYFHeaders(auth?.cookie);
+
+  const url = `${YF_BASE}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${crumbParam}${events}`;
+  const url2 = `${YF_BASE2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${crumbParam}${events}`;
+
   for (const endpoint of [url, url2]) {
     try {
       const res = await fetch(endpoint, {
-        headers: YF_HEADERS,
+        headers,
         signal: AbortSignal.timeout(12000),
       });
+      if (res.status === 401 || res.status === 403) {
+        // Crumb may be stale — invalidate and retry once without crumb
+        yfCrumb = null; yfCookie = null; yfCrumbExpiry = 0;
+        console.warn("YF: auth rejected for", symbol, "status", res.status);
+        continue;
+      }
       if (!res.ok) continue;
       const data = (await res.json()) as YahooChartResult;
       if (data?.chart?.error) {
@@ -184,6 +283,8 @@ async function fetchBatchFromYahoo(
   interval: string = "1d"
 ): Promise<Record<string, YahooChartResult>> {
   if (!symbols || symbols.length === 0) return {};
+  // Pre-fetch crumb once for all batch calls
+  await getYFCrumb();
   // Fan out concurrently (reuses existing runWithConcurrency helper below)
   const results = await runWithConcurrency(8, symbols, (sym) =>
     fetchFromYahoo(sym, range, interval).then((data) => ({ sym, data }))
@@ -197,13 +298,16 @@ async function fetchBatchFromYahoo(
 
 // Fetch quote summary for fundamentals (financialData + defaultKeyStatistics)
 async function fetchQuoteSummary(symbol: string): Promise<any | null> {
+  const auth = await getYFCrumb();
+  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
+  const headers = buildYFHeaders(auth?.cookie);
   const modules = "defaultKeyStatistics,financialData";
-  const url = `${YF_BASE}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
-  const url2 = `${YF_BASE2}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+  const url = `${YF_BASE}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
+  const url2 = `${YF_BASE2}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
   for (const endpoint of [url, url2]) {
     try {
       const res = await fetch(endpoint, {
-        headers: YF_HEADERS,
+        headers,
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) continue;
@@ -217,6 +321,7 @@ async function fetchQuoteSummary(symbol: string): Promise<any | null> {
   }
   return null;
 }
+
 
 function getTodayDate(): string {
   const today = new Date();
