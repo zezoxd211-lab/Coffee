@@ -33,7 +33,7 @@ def get_chart(symbol, range_str, interval_str):
     # Fill NANs with None for JSON mapping
     hist = hist.replace({np.nan: None})
     
-    timestamps = (hist.index.astype('int64') // 10**9).tolist()
+    timestamps = [int(ts.timestamp()) for ts in hist.index]
     
     close_prices = hist['Close'].tolist()
     open_prices = hist['Open'].tolist()

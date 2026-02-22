@@ -29,7 +29,7 @@ export function Sidebar() {
       <div className="flex h-16 items-center border-b border-white/10 px-6">
         <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-white/80 transition-colors">
           <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
-          <span>Tadawul Insight</span>
+          <span>Live92</span>
         </Link>
       </div>
       <div className="flex-1 overflow-y-auto py-4">
@@ -91,7 +91,7 @@ export function MobileSidebar() {
           <div className="flex h-16 items-center border-b border-white/10 px-6">
             <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-white/80 transition-colors">
               <img src={generatedImage} alt="Logo" className="h-8 w-8 rounded-sm" />
-              <span>Tadawul Insight</span>
+              <span>Live92</span>
             </Link>
           </div>
           <div className="flex-1 overflow-y-auto py-4">

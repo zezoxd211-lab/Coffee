@@ -17,7 +17,10 @@ const execFileAsync = promisify(execFile);
 async function spawnPythonBridge(args: any): Promise<any> {
   const scriptPath = path.join(process.cwd(), "server", "yfinance_bridge.py");
   try {
-    const { stdout, stderr } = await execFileAsync("python", [scriptPath, JSON.stringify(args)], { maxBuffer: 1024 * 1024 * 10 }); // 10MB buffer
+    const { stdout } = await execFileAsync("python", [scriptPath, JSON.stringify(args)], {
+      maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+      timeout: 15000 // 15 second max timeout
+    });
     try {
       const data = JSON.parse(stdout.trim());
       if (data.error) {
@@ -171,6 +174,17 @@ async function fetchFromYahoo(symbol: string, range: string = "1d", interval: st
   return data as YahooChartResult;
 }
 
+async function fetchBatchFromYahoo(symbols: string[], range: string = "1d", interval: string = "1d"): Promise<Record<string, YahooChartResult>> {
+  if (!symbols || symbols.length === 0) return {};
+  const data = await spawnPythonBridge({
+    action: "batch_chart",
+    symbols: symbols,
+    range: range,
+    interval: interval
+  });
+  return data as Record<string, YahooChartResult>;
+}
+
 // Fetch quote summary for fundamentals
 async function fetchQuoteSummary(symbol: string): Promise<any | null> {
   const data = await spawnPythonBridge({ action: "quote", symbol: symbol });
@@ -308,11 +322,15 @@ export async function registerRoutes(
       return;
     }
 
-    const indexPromises = Object.entries(INDEX_SYMBOLS).map(async ([name, symbol]) => {
-      // Use 5d range to get proper previous close data
-      const data = await fetchFromYahoo(symbol, "5d", "1d");
+    const indexSymbols = Object.values(INDEX_SYMBOLS);
+    const indexNames = Object.keys(INDEX_SYMBOLS);
+    const batchData = await fetchBatchFromYahoo(indexSymbols, "5d", "1d");
 
-      if (data && data.chart.result && !data.chart.error) {
+    const indexPromises = indexNames.map(async (name) => {
+      const symbol = INDEX_SYMBOLS[name as keyof typeof INDEX_SYMBOLS];
+      const data = batchData[symbol];
+
+      if (data && data.chart && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0]?.close;
 
@@ -321,7 +339,7 @@ export async function registerRoutes(
 
           if (closes.length >= 2) {
             const currentPrice = closes[closes.length - 1];
-            const previousClose = closes[closes.length - 2];
+            const previousClose = closes[closes.length - 2] || (result.meta?.chartPreviousClose || currentPrice);
             const change = currentPrice - previousClose;
             const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
 
@@ -336,8 +354,8 @@ export async function registerRoutes(
         }
 
         // Fallback to meta data
-        const currentPrice = result.meta.regularMarketPrice;
-        const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
+        const currentPrice = result.meta?.regularMarketPrice || 0;
+        const previousClose = result.meta?.chartPreviousClose || result.meta?.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
 
@@ -368,19 +386,22 @@ export async function registerRoutes(
     const cached = getCached<any[]>(cacheKey);
     if (cached) { res.json(cached); return; }
 
-    // Fetch live prices for the top 30 stocks with concurrency=5
+    // Fetch live prices for the top 30 stocks with batch processing
     const liveEntries = DASHBOARD_SYMBOLS
       .map(id => [id, STOCK_SYMBOLS[id]] as [string, typeof STOCK_SYMBOLS[string]])
       .filter(([, info]) => !!info);
 
-    const livePrices = await runWithConcurrency(5, liveEntries, async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
-      if (data?.chart?.result?.[0] && !data.chart.error) {
+    const liveSymbols = liveEntries.map(([, info]) => info.symbol);
+    const batchData = await fetchBatchFromYahoo(liveSymbols, "5d", "1d");
+
+    const livePrices = liveEntries.map(([id, info]) => {
+      const data = batchData[info.symbol];
+      if (data && data.chart && data.chart.result && !data.chart.error) {
         const result = data.chart.result[0];
         const closes = (result.indicators?.quote?.[0]?.close || []).filter((c: number | null) => c !== null);
         if (closes.length >= 1) {
           const currentPrice = closes[closes.length - 1];
-          const previousClose = closes.length >= 2 ? closes[closes.length - 2] : (result.meta.chartPreviousClose || currentPrice);
+          const previousClose = closes.length >= 2 ? closes[closes.length - 2] : (result.meta?.chartPreviousClose || currentPrice);
           const change = currentPrice - previousClose;
           const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
           return {
@@ -391,8 +412,8 @@ export async function registerRoutes(
             dividendYield: getDividendYield(id), volume: "N/A", isMock: false,
           };
         }
-        const currentPrice = result.meta.regularMarketPrice || 0;
-        const previousClose = result.meta.chartPreviousClose || result.meta.previousClose || currentPrice;
+        const currentPrice = result.meta?.regularMarketPrice || 0;
+        const previousClose = result.meta?.chartPreviousClose || result.meta?.previousClose || currentPrice;
         const change = currentPrice - previousClose;
         const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
         return {
@@ -653,6 +674,8 @@ export async function registerRoutes(
   });
 
   // Market movers endpoint (top gainers, losers, volume)
+  // Uses a SINGLE batch Yahoo Finance call for DASHBOARD_SYMBOLS (30 stocks)
+  // to avoid spawning 150+ Python subprocesses in parallel.
   app.get("/api/market/movers", async (req: Request, res: Response) => {
     const cacheKey = "market:movers";
     const cached = getCached<any>(cacheKey);
@@ -661,48 +684,41 @@ export async function registerRoutes(
       return;
     }
 
-    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+    const dashEntries = DASHBOARD_SYMBOLS
+      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
+      .filter(e => !!e.info);
 
-      if (data && data.chart.result && !data.chart.error) {
+    const batchSymbols = dashEntries.map(e => e.info.symbol);
+    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
+
+    const stocks = dashEntries.map(({ id, info }) => {
+      const data = batchData[info.symbol];
+      if (data?.chart?.result?.[0] && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0];
-        const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
-        const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
-
+        const closes = (quoteData?.close || []).filter((c: number | null) => c !== null);
+        const volumes = (quoteData?.volume || []).filter((v: number | null) => v !== null);
         if (closes.length >= 2) {
           const currentPrice = closes[closes.length - 1];
           const previousClose = closes[closes.length - 2];
           const change = currentPrice - previousClose;
           const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-          const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
-
           return {
-            symbol: id,
-            name: info.name,
-            nameAr: info.nameAr,
-            sector: info.sector,
+            symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
             price: Number(currentPrice.toFixed(2)),
             change: Number(change.toFixed(2)),
             changePercent: Number(changePercent.toFixed(2)),
-            volume
+            volume: volumes.length > 0 ? volumes[volumes.length - 1] : 0
           };
         }
       }
-
+      const mock = getMockStockData(id, info);
       return {
-        symbol: id,
-        name: info.name,
-        nameAr: info.nameAr,
-        sector: info.sector,
-        price: getMockStockData(id, info).price,
-        change: getMockStockData(id, info).change,
-        changePercent: getMockStockData(id, info).changePercent,
+        symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
+        price: mock.price, change: mock.change, changePercent: mock.changePercent,
         volume: Math.floor(Math.random() * 5000000)
       };
     });
-
-    const stocks = await Promise.all(stockPromises);
 
     const gainers = [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 5);
     const losers = [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
@@ -714,6 +730,7 @@ export async function registerRoutes(
   });
 
   // Sector performance heatmap
+  // Uses a SINGLE batch call for DASHBOARD_SYMBOLS to avoid 150+ Python subprocesses.
   app.get("/api/market/sectors", async (req: Request, res: Response) => {
     const cacheKey = "market:sectors";
     const cached = getCached<any[]>(cacheKey);
@@ -722,26 +739,27 @@ export async function registerRoutes(
       return;
     }
 
-    const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+    const dashEntries = DASHBOARD_SYMBOLS
+      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
+      .filter(e => !!e.info);
 
-      if (data && data.chart.result && !data.chart.error) {
+    const batchSymbols = dashEntries.map(e => e.info.symbol);
+    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
+
+    const stocks = dashEntries.map(({ id, info }) => {
+      const data = batchData[info.symbol];
+      if (data?.chart?.result?.[0] && !data.chart.error) {
         const result = data.chart.result[0];
-        const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-
+        const closes = (result.indicators?.quote?.[0]?.close || []).filter((c: number | null) => c !== null);
         if (closes.length >= 2) {
           const currentPrice = closes[closes.length - 1];
           const previousClose = closes[closes.length - 2];
           const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-
           return { sector: info.sector, symbol: id, changePercent: Number(changePercent.toFixed(2)), marketCap: getMarketCap(id) };
         }
       }
-
       return { sector: info.sector, symbol: id, changePercent: (Math.random() - 0.5) * 4, marketCap: getMarketCap(id) };
     });
-
-    const stocks = await Promise.all(stockPromises);
 
     // Group by sector
     const sectorMap = new Map<string, { totalChange: number; count: number; marketCap: number }>();
@@ -828,6 +846,7 @@ export async function registerRoutes(
   });
 
   // Market breadth indicators
+  // Uses a SINGLE batch call for DASHBOARD_SYMBOLS instead of concurrency with per-stock calls.
   app.get("/api/market/breadth", async (req: Request, res: Response) => {
     const cacheKey = "market:breadth";
     const cached = getCached<any>(cacheKey);
@@ -837,25 +856,26 @@ export async function registerRoutes(
     }
 
     const dashEntries = DASHBOARD_SYMBOLS
-      .map(id => [id, STOCK_SYMBOLS[id]] as [string, typeof STOCK_SYMBOLS[string]])
-      .filter(([, info]) => !!info);
+      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
+      .filter(e => !!e.info);
 
-    const stocks = await runWithConcurrency(5, dashEntries, async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+    const batchSymbols = dashEntries.map(e => e.info.symbol);
+    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
+
+    const stocks = dashEntries.map(({ id, info }) => {
+      const data = batchData[info.symbol];
       if (data?.chart?.result?.[0] && !data.chart.error) {
         const result = data.chart.result[0];
         const quoteData = result.indicators?.quote?.[0];
-        const closes = quoteData?.close?.filter((c: number | null) => c !== null) || [];
-        const volumes = quoteData?.volume?.filter((v: number | null) => v !== null) || [];
+        const closes = (quoteData?.close || []).filter((c: number | null) => c !== null);
+        const volumes = (quoteData?.volume || []).filter((v: number | null) => v !== null);
         if (closes.length >= 2) {
           const change = closes[closes.length - 1] - closes[closes.length - 2];
-          const volume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
-          return { change, volume };
+          return { change, volume: volumes.length > 0 ? volumes[volumes.length - 1] : 0 };
         }
       }
       return { change: (Math.random() - 0.5) * 2, volume: Math.floor(Math.random() * 5000000) };
     });
-
 
     const advances = stocks.filter(s => s.change > 0).length;
     const declines = stocks.filter(s => s.change < 0).length;
