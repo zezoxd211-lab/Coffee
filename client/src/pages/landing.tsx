@@ -72,7 +72,7 @@ export default function Landing() {
                                         className="h-12 text-base"
                                     />
                                     <Link href="/dashboard">
-                                        <Button size="lg" className="h-12 w-full sm:w-auto text-base shadow-lg shadow-primary/20">
+                                        <Button size="lg" className="h-12 w-full sm:w-auto text-base shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] transition-all duration-300 hover:-translate-y-0.5">
                                             {isAr ? "ابدأ تجربتك المجانية" : "Start Free Trial"}
                                         </Button>
                                     </Link>
@@ -85,9 +85,9 @@ export default function Landing() {
                             </div>
 
                             {/* Hero Right: Live Stats Dashboard Mockup */}
-                            <div className="relative mx-auto w-full max-w-lg lg:max-w-none">
-                                <div className="relative rounded-2xl border bg-card text-card-foreground shadow-2xl p-6 overflow-hidden">
-                                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                            <div className="relative mx-auto w-full max-w-lg lg:max-w-none group">
+                                <div className="relative rounded-2xl border border-border/50 bg-card text-card-foreground shadow-2xl p-6 overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] hover:border-border">
+                                    <div className="absolute top-0 right-0 p-4 opacity-5 transition-opacity duration-300 group-hover:opacity-10">
                                         <BarChart3 className="w-40 h-40" />
                                     </div>
                                     <div className="flex items-center justify-between mb-8">
@@ -139,7 +139,7 @@ export default function Landing() {
                                 </div>
 
                                 {/* Decorative blobs behind dashboard */}
-                                <div className="absolute -inset-x-4 -inset-y-4 z-[-1] rounded-[3rem] bg-gradient-to-tr from-primary/20 via-transparent to-accent/20 blur-2xl"></div>
+                                <div className="absolute -inset-x-4 -inset-y-4 z-[-1] rounded-[3rem] bg-gradient-to-tr from-primary/10 via-transparent to-accent/10 blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-100"></div>
                             </div>
                         </div>
                     </div>
@@ -177,7 +177,7 @@ export default function Landing() {
 
                         <div className="grid md:grid-cols-3 gap-8">
                             {/* Basic Plan */}
-                            <div className="rounded-2xl border bg-card p-8 shadow-sm flex flex-col">
+                            <div className="rounded-2xl border bg-card p-8 shadow-sm flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1 hover:border-primary/50">
                                 <h3 className="text-xl font-semibold mb-2">{isAr ? "الأساسي" : "Basic"}</h3>
                                 <div className="mb-4">
                                     <span className="text-4xl font-bold">Free</span>
@@ -203,8 +203,8 @@ export default function Landing() {
                             </div>
 
                             {/* Pro Plan */}
-                            <div className="rounded-2xl border-2 border-primary bg-card p-8 shadow-xl relative flex flex-col transform md:-translate-y-4">
-                                <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-3 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-full">
+                            <div className="rounded-2xl border-2 border-primary bg-card p-8 shadow-[0_0_30px_rgba(255,255,255,0.03)] relative flex flex-col transform md:-translate-y-4 transition-all duration-300 hover:shadow-[0_0_40px_rgba(255,255,255,0.08)] hover:-translate-y-5">
+                                <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-3 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-full shadow-sm">
                                     {isAr ? "الأكثر مبيعاً" : "MOST POPULAR"}
                                 </div>
                                 <h3 className="text-xl font-semibold mb-2">{isAr ? "المحترف" : "Pro"}</h3>
@@ -234,7 +234,7 @@ export default function Landing() {
                             </div>
 
                             {/* Enterprise Plan */}
-                            <div className="rounded-2xl border bg-card p-8 shadow-sm flex flex-col">
+                            <div className="rounded-2xl border bg-card p-8 shadow-sm flex flex-col transition-all duration-300 hover:shadow-xl hover:-translate-y-1 hover:border-primary/50">
                                 <h3 className="text-xl font-semibold mb-2">{isAr ? "المؤسسات" : "Enterprise"}</h3>
                                 <div className="mb-4 flex items-baseline">
                                     <span className="text-4xl font-bold">499 ﷼</span>
