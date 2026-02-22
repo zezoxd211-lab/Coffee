@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { HandWrittenTitle } from "@/components/ui/hand-writing-text";
 import { ShaderAnimation } from "@/components/ui/shader-animation";
 import { InteractiveBackground } from "@/components/ui/interactive-background";
+import { RainbowButton } from "@/components/ui/rainbow-button";
 
 export default function Landing() {
     const { language, setLanguage } = useLanguage();
@@ -248,7 +249,9 @@ export default function Landing() {
                                         ))}
                                     </ul>
                                     <Link href="/dashboard" className="w-full mt-auto">
-                                        <Button className="w-full">{isAr ? "اشترك الآن" : "Subscribe Now"}</Button>
+                                        <RainbowButton className="w-full h-11 rounded-xl text-sm font-semibold">
+                                            {isAr ? "اشترك الآن" : "Subscribe Now"}
+                                        </RainbowButton>
                                     </Link>
                                 </div>
 
@@ -298,9 +301,9 @@ export default function Landing() {
                                 {isAr ? "انضم إلى آلاف المحترفين واستفد من قوة البيانات الكمية المباشرة." : "Join thousands of professionals and tap into the power of live quantitative data."}
                             </p>
                             <Link href="/dashboard">
-                                <Button size="lg" className="h-14 px-10 text-lg shadow-[0_0_30px_rgba(255,255,255,0.15)] hover:shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-300 hover:-translate-y-1 rounded-full">
+                                <RainbowButton className="h-14 px-10 text-lg rounded-full">
                                     {isAr ? "انضم إلى 10,000+ متداول اليوم" : "Join 10,000+ traders today"}
-                                </Button>
+                                </RainbowButton>
                             </Link>
                         </div>
                     </section>
