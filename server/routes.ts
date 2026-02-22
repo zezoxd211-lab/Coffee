@@ -9,6 +9,11 @@ import {
 } from "./saudiExchangeApi";
 
 const YAHOO_FINANCE_BASE = "https://query1.finance.yahoo.com/v8/finance/chart";
+const YAHOO_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "X-API-KEY": "dj0yJmk9U2FWNjJ3UUFlNWltJmQ9WVdrOVVtdzFWV1o0TW5vbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PTEw",
+  "X-APP-ID": "Rl5Ufx2z"
+};
 
 // Simple in-memory cache with TTL
 interface CacheEntry<T> {
@@ -141,9 +146,7 @@ async function fetchFromYahoo(symbol: string, range: string = "1d", interval: st
     const eventsParam = includeEvents ? "&events=div,split" : "";
     const url = `${YAHOO_FINANCE_BASE}/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${eventsParam}`;
     const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      }
+      headers: YAHOO_HEADERS
     });
 
     if (!response.ok) {
@@ -165,9 +168,7 @@ async function fetchQuoteSummary(symbol: string): Promise<any | null> {
     const modules = "summaryProfile,financialData,defaultKeyStatistics,earningsHistory,incomeStatementHistory";
     const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
     const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      }
+      headers: YAHOO_HEADERS
     });
 
     if (!response.ok) {
@@ -1165,7 +1166,7 @@ export async function registerRoutes(
 
       const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
       const response = await fetch(url, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        headers: YAHOO_HEADERS
       });
 
       if (!response.ok) {
@@ -1368,7 +1369,7 @@ export async function registerRoutes(
         const modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory";
         const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
         const response = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+          headers: YAHOO_HEADERS
         });
 
         if (!response.ok) {
