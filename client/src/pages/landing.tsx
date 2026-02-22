@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, ShieldCheck, Lock, Award, TrendingUp, TrendingDown, BarChart3, Activity } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
-import { useSaudiExchangeTASI, useMarketBreadth } from "@/lib/api";
+import { useSaudiExchangeTASI, useMarketBreadth, useMarketNews } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { HandWrittenTitle } from "@/components/ui/hand-writing-text";
 import { ShaderAnimation } from "@/components/ui/shader-animation";
@@ -13,6 +13,7 @@ export default function Landing() {
     const { language, setLanguage } = useLanguage();
     const { data: tasi } = useSaudiExchangeTASI();
     const { data: breadth } = useMarketBreadth();
+    const { data: news } = useMarketNews();
 
     const isAr = language === "ar";
     const toggleLanguage = () => setLanguage(isAr ? "en" : "ar");
@@ -82,62 +83,82 @@ export default function Landing() {
                                     </p>
                                 </div>
 
-                                {/* Hero Right: Live Stats Dashboard Mockup */}
-                                <div className="relative mx-auto w-full max-w-lg lg:max-w-none group">
-                                    <div className="relative rounded-2xl border border-border/50 bg-card text-card-foreground shadow-2xl p-6 overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] hover:border-border">
-                                        <div className="absolute top-0 right-0 p-4 opacity-5 transition-opacity duration-300 group-hover:opacity-10">
-                                            <BarChart3 className="w-40 h-40" />
-                                        </div>
-                                        <div className="flex items-center justify-between mb-8">
-                                            <h3 className="font-semibold text-lg">{isAr ? "مؤشرات السوق المباشرة" : "Live Market Pulse"}</h3>
+                                {/* Hero Right: Market Stats & News Dashboard */}
+                                <div className="relative mx-auto w-full max-w-lg lg:max-w-none group flex flex-col gap-6">
+                                    <div className="relative rounded-2xl border border-border/50 bg-background/20 backdrop-blur-xl text-card-foreground shadow-2xl p-6 overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] hover:border-border">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="font-semibold text-lg text-white">{isAr ? "مؤشرات السوق المباشرة" : "Live Market Pulse"}</h3>
                                             <span className="flex h-3 w-3">
                                                 <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-green-400 opacity-75"></span>
                                                 <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
                                             </span>
                                         </div>
 
-                                        <div className="space-y-6 relative z-10">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
                                             {/* TASI Live Card */}
-                                            <div className="p-4 rounded-xl bg-secondary/50 border flex items-center justify-between">
+                                            <div className="p-4 rounded-xl bg-black/40 border border-white/5 flex flex-col justify-between">
                                                 <div>
-                                                    <p className="text-sm text-muted-foreground font-medium mb-1">TASI {isAr ? "(تداول)" : "(Saudi Exchange)"}</p>
-                                                    <p className="text-3xl font-bold font-mono">
+                                                    <p className="text-sm text-white/70 font-medium mb-1">TASI {isAr ? "(تداول)" : "(Saudi Exchange)"}</p>
+                                                    <p className="text-3xl font-bold font-mono text-white">
                                                         {tasi ? tasi.value.toLocaleString("en-US", { minimumFractionDigits: 2 }) : "11,850.42"}
                                                     </p>
                                                 </div>
-                                                <div className="text-right">
-                                                    <div className={cn("inline-flex items-center px-2 py-1 rounded-md text-sm font-bold", (tasi?.changePercent ?? 1) >= 0 ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500")}>
+                                                <div className="mt-4 flex justify-between items-end">
+                                                    <div className={cn("inline-flex items-center px-2 py-1 rounded-md text-sm font-bold", (tasi?.changePercent ?? 1) >= 0 ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400")}>
                                                         {(tasi?.changePercent ?? 1) >= 0 ? <TrendingUp className="h-4 w-4 mr-1" /> : <TrendingDown className="h-4 w-4 mr-1" />}
                                                         {(tasi?.changePercent ?? 1) >= 0 ? "+" : ""}{(tasi?.changePercent ?? 0.85).toFixed(2)}%
                                                     </div>
-                                                    <p className="text-xs text-muted-foreground mt-1 text-right">
+                                                    <p className="text-xs text-white/50 text-right">
                                                         {(tasi?.change ?? 102.4).toFixed(2)} pts
                                                     </p>
                                                 </div>
                                             </div>
 
                                             {/* Breadth Live Card */}
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="p-4 rounded-xl bg-background border">
-                                                    <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                                                        <TrendingUp className="h-3 w-3 text-green-500" />
-                                                        {isAr ? "الشركات المرتفعة" : "Advancing"}
+                                            <div className="flex flex-col gap-2">
+                                                <div className="p-4 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between">
+                                                    <p className="text-sm text-white/70 flex items-center gap-2">
+                                                        <TrendingUp className="h-4 w-4 text-green-400" />
+                                                        {isAr ? "المرتفعة" : "Advancing"}
                                                     </p>
-                                                    <p className="text-2xl font-bold text-green-500">{breadth ? breadth.advances : 142}</p>
+                                                    <p className="text-2xl font-bold text-green-400 font-mono">{breadth ? breadth.advances : 142}</p>
                                                 </div>
-                                                <div className="p-4 rounded-xl bg-background border">
-                                                    <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                                                        <TrendingDown className="h-3 w-3 text-red-500" />
-                                                        {isAr ? "الشركات المنخفضة" : "Declining"}
+                                                <div className="p-4 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between">
+                                                    <p className="text-sm text-white/70 flex items-center gap-2">
+                                                        <TrendingDown className="h-4 w-4 text-red-400" />
+                                                        {isAr ? "المنخفضة" : "Declining"}
                                                     </p>
-                                                    <p className="text-2xl font-bold text-red-500">{breadth ? breadth.declines : 68}</p>
+                                                    <p className="text-2xl font-bold text-red-400 font-mono">{breadth ? breadth.declines : 68}</p>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
+                                    {/* Market News Section */}
+                                    <div className="relative rounded-2xl border border-border/50 bg-background/20 backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-500 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] hover:border-border">
+                                        <div className="p-4 border-b border-white/5 bg-black/20 flex items-center gap-2">
+                                            <div className="h-3 w-3 rounded-full bg-red-500"></div>
+                                            <div className="h-3 w-3 rounded-full bg-yellow-500"></div>
+                                            <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                                            <span className="ml-2 text-sm font-medium text-white/80">{isAr ? "أخبار السوق المباشرة" : "Live Market News"}</span>
+                                        </div>
+                                        <div className="p-4 flex flex-col gap-3 max-h-[250px] overflow-y-auto custom-scrollbar">
+                                            {(news ? news.slice(0, 4) : Array(4).fill(null)).map((item, idx) => (
+                                                <div key={item?.id || idx} className="p-3 rounded-lg bg-black/40 hover:bg-black/60 transition-colors border border-white/5">
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <p className="text-xs text-primary font-medium">{item?.category || "Tadawul"}</p>
+                                                        <p className="text-xs text-white/50">{item?.date || "Just now"}</p>
+                                                    </div>
+                                                    <h4 className="text-sm font-semibold text-white/90 line-clamp-2">
+                                                        {item ? (isAr ? item.titleAr : item.title) : (isAr ? "جاري تحميل أخبار السوق..." : "Loading market news...")}
+                                                    </h4>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
                                     {/* Decorative blobs behind dashboard */}
-                                    <div className="absolute -inset-x-4 -inset-y-4 z-[-1] rounded-[3rem] bg-gradient-to-tr from-primary/10 via-transparent to-accent/10 blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-100"></div>
+                                    <div className="absolute -inset-x-4 -inset-y-4 z-[-1] rounded-[3rem] bg-gradient-to-tr from-primary/10 via-transparent to-accent/10 blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-100 pointer-events-none"></div>
                                 </div>
                             </div>
                         </div>

@@ -3,6 +3,7 @@ import json
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import concurrent.futures
 
 def clean_dict(d):
     """Recursively clean dicts for JSON serialization (handles NaNs and NaTs)"""
@@ -130,8 +131,14 @@ def main():
             interval_str = input_data.get('interval', '1d')
             
             output = {}
-            for sym in symbols:
-                output[sym] = get_chart(sym, range_str, interval_str)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_sym = {executor.submit(get_chart, sym, range_str, interval_str): sym for sym in symbols}
+                for future in concurrent.futures.as_completed(future_to_sym):
+                    sym = future_to_sym[future]
+                    try:
+                        output[sym] = future.result()
+                    except Exception as e:
+                        output[sym] = {"chart": {"result": None, "error": {"description": str(e)}}}
                 
             print(json.dumps(output))
             
