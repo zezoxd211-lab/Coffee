@@ -362,9 +362,9 @@ const STOCK_SYMBOLS: Record<string, { symbol: string; name: string; nameAr: stri
 })();
 
 export async function registerRoutes(
-  httpServer: Server,
+  httpServer: Server | null,
   app: Express
-): Promise<Server> {
+): Promise<Server | null> {
 
   // Get current TASI OHLC data
   app.get("/api/market/tasi", async (req: Request, res: Response) => {
