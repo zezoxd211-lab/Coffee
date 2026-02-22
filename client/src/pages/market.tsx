@@ -51,7 +51,9 @@ export default function Market() {
   // SE data is preferred when available (comes in one batch call),
   // otherwise falls back to Yahoo Finance per-stock data.
   const mergedStocks = useMemo(() => {
-    if (seStocks.length > 0) {
+    const hasValidSeData = seStocks.length > 0 && seStocks.some((s: any) => s.lastPrice > 0);
+
+    if (hasValidSeData) {
       // Build a Yahoo lookup map for metadata enrichment
       const yahooMap = new Map(yahooStocks.map(s => [s.symbol, s]));
       return seStocks.map(se => {
@@ -92,7 +94,8 @@ export default function Market() {
   }, [mergedStocks, filter]);
 
   const isLoading = stocksLoading && seLoading;
-  const dataSource = seStocks.length > 0 ? "Saudi Exchange" : "Yahoo Finance";
+  const hasValidSeData = seStocks.length > 0 && seStocks.some((s: any) => s.lastPrice > 0);
+  const dataSource = hasValidSeData ? "Saudi Exchange" : "Yahoo Finance";
   const isMarketOpen = seStatus?.status === "open";
 
   return (
@@ -233,8 +236,8 @@ export default function Market() {
                           {stock.price > 0 ? `${stock.price.toFixed(2)} ﷼` : "—"}
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
-                          {stock.openPrice > 0
-                            ? `${stock.openPrice.toFixed(2)} / ${stock.highPrice.toFixed(2)} / ${stock.lowPrice.toFixed(2)}`
+                          {Number(stock.openPrice) > 0
+                            ? `${Number(stock.openPrice).toFixed(2)} / ${Number(stock.highPrice).toFixed(2)} / ${Number(stock.lowPrice).toFixed(2)}`
                             : stock.marketCap !== "N/A" ? `MCap: ${stock.marketCap}` : "—"}
                         </TableCell>
                         <TableCell className="text-right">
@@ -247,10 +250,10 @@ export default function Market() {
                           </span>
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground text-xs">
-                          {stock.volume > 0
-                            ? stock.volume >= 1e6
-                              ? `${(stock.volume / 1e6).toFixed(1)}M`
-                              : `${(stock.volume / 1e3).toFixed(0)}K`
+                          {Number(stock.volume) > 0
+                            ? Number(stock.volume) >= 1e6
+                              ? `${(Number(stock.volume) / 1e6).toFixed(1)}M`
+                              : `${(Number(stock.volume) / 1e3).toFixed(0)}K`
                             : "—"}
                         </TableCell>
                       </TableRow>
