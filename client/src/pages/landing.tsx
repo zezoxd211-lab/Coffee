@@ -6,6 +6,7 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { useSaudiExchangeTASI, useMarketBreadth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { HandWrittenTitle } from "@/components/ui/hand-writing-text";
+import { ShaderAnimation } from "@/components/ui/shader-animation";
 
 export default function Landing() {
     const { language, setLanguage } = useLanguage();
@@ -265,13 +266,22 @@ export default function Landing() {
                 </section>
 
                 {/* Footer CTA */}
-                <section className="py-20 bg-primary/5 text-center">
-                    <div className="container mx-auto px-4">
-                        <h2 className="text-3xl font-bold mb-6">
+                <section className="relative py-24 text-center overflow-hidden border-t">
+                    <div className="absolute inset-0 z-0">
+                        <ShaderAnimation />
+                    </div>
+                    {/* Dark gradient overlay to ensure text readability over the shader */}
+                    <div className="absolute inset-0 bg-background/80 md:bg-background/60 z-0 backdrop-blur-[2px]"></div>
+
+                    <div className="container relative mx-auto px-4 z-10 flex flex-col items-center justify-center">
+                        <h2 className="text-4xl md:text-5xl font-extrabold mb-6 tracking-tight">
                             {isAr ? "جاهز لتغيير طريقة تداولك؟" : "Ready to transform your trading?"}
                         </h2>
+                        <p className="text-xl text-muted-foreground mb-8 max-w-2xl text-center">
+                            {isAr ? "انضم إلى آلاف المحترفين واستفد من قوة البيانات الكمية المباشرة." : "Join thousands of professionals and tap into the power of live quantitative data."}
+                        </p>
                         <Link href="/dashboard">
-                            <Button size="lg" className="h-12 px-8 text-base">
+                            <Button size="lg" className="h-14 px-10 text-lg shadow-[0_0_30px_rgba(255,255,255,0.15)] hover:shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-300 hover:-translate-y-1 rounded-full">
                                 {isAr ? "انضم إلى 10,000+ متداول اليوم" : "Join 10,000+ traders today"}
                             </Button>
                         </Link>
