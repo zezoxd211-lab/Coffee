@@ -25,7 +25,7 @@ export default function Landing() {
                         <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg">
                             S
                         </div>
-                        <span className="text-xl font-bold tracking-tight">Saudi Quants</span>
+                        <span className="text-xl font-bold tracking-tight">live 92</span>
                     </div>
                     <div className="flex items-center gap-4">
                         <button onClick={toggleLanguage} className="text-sm font-medium hover:text-primary transition-colors">
@@ -54,9 +54,6 @@ export default function Landing() {
 
                             {/* Hero Left: Value Prop + Form */}
                             <div className={cn("max-w-2xl", isAr ? "lg:text-right" : "lg:text-left")}>
-                                <div className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 mb-6">
-                                    {isAr ? "✨ منصة التحليل الكمي الأولى في المملكة" : "✨ The #1 Quantitative Platform in Saudi Arabia"}
-                                </div>
                                 <div className="mb-4">
                                     <HandWrittenTitle
                                         title={isAr ? "تداول بذكاء في السـوق السـعـودي" : "Trade Smarter in the Saudi Market"}
