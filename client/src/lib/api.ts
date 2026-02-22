@@ -433,3 +433,74 @@ export function useRemoveFromPortfolio() {
     },
   });
 }
+
+// ─── Saudi Exchange Live Data ─────────────────────────────────────────────────
+
+export interface SaudiExchangeStock {
+  symbol: string;
+  companyNameEn: string;
+  companyNameAr: string;
+  sector: string;
+  lastPrice: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  openPrice: number;
+  highPrice: number;
+  lowPrice: number;
+  turnover: number;
+  updatedAt: string;
+  yahooSymbol?: string;
+  source?: string;
+}
+
+export interface SaudiExchangeIndex {
+  name: string;
+  value: number;
+  change: number;
+  changePercent: number;
+  updatedAt: string;
+  source?: string;
+}
+
+export interface MarketStatus {
+  status: "open" | "closed" | "pre-open" | string;
+  message: string;
+}
+
+/**
+ * Fetch all listed equities with live prices from Saudi Exchange.
+ * Falls back to our known stock catalog with Yahoo Finance prices if unavailable.
+ */
+export function useSaudiExchangeMarket() {
+  return useQuery<SaudiExchangeStock[]>({
+    queryKey: ["saudi-exchange", "market"],
+    queryFn: () => fetchJson("/saudi-exchange/market"),
+    refetchInterval: 60000,   // 1 min — Saudi Exchange API is rate-sensitive
+    staleTime: 30000,
+  });
+}
+
+/**
+ * Fetch live TASI index from Saudi Exchange (with Yahoo Finance fallback).
+ */
+export function useSaudiExchangeTASI() {
+  return useQuery<SaudiExchangeIndex>({
+    queryKey: ["saudi-exchange", "tasi"],
+    queryFn: () => fetchJson("/saudi-exchange/tasi"),
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
+}
+
+/**
+ * Fetch current Saudi Exchange market status (open / closed / pre-open).
+ */
+export function useSaudiExchangeStatus() {
+  return useQuery<MarketStatus>({
+    queryKey: ["saudi-exchange", "status"],
+    queryFn: () => fetchJson("/saudi-exchange/status"),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+}
