@@ -1,8 +1,5 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import path from "path";
 import { storage } from "./storage";
 import { TADAWUL_STOCKS } from "./tadawulStocks";
 import {
@@ -11,32 +8,20 @@ import {
   fetchMarketStatus,
 } from "./saudiExchangeApi";
 
-// Python Bridge Helper
-const execFileAsync = promisify(execFile);
+// ─── Yahoo Finance Native Fetch Bridge ───────────────────────────────────────
+// Replaces the old Python/yfinance bridge. Uses Yahoo Finance's undocumented
+// v8 chart and v10 quoteSummary APIs directly via Node fetch().
+// This works in Vercel serverless (no Python needed).
 
-async function spawnPythonBridge(args: any): Promise<any> {
-  const scriptPath = path.join(process.cwd(), "server", "yfinance_bridge.py");
-  try {
-    const { stdout } = await execFileAsync("python", [scriptPath, JSON.stringify(args)], {
-      maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-      timeout: 15000 // 15 second max timeout
-    });
-    try {
-      const data = JSON.parse(stdout.trim());
-      if (data.error) {
-        console.error("Python bridge returned error:", data.error);
-        return null;
-      }
-      return data;
-    } catch (parseError) {
-      console.error("Failed to parse Python output. Stdout:", stdout.substring(0, 500));
-      return null;
-    }
-  } catch (err: any) {
-    console.error("Python bridge execution exception:", err);
-    return null;
-  }
-}
+const YF_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
+const YF_BASE = "https://query1.finance.yahoo.com";
+const YF_BASE2 = "https://query2.finance.yahoo.com"; // fallback
 
 // Simple in-memory cache with TTL
 interface CacheEntry<T> {
@@ -164,31 +149,73 @@ interface YahooChartResult {
   };
 }
 
-async function fetchFromYahoo(symbol: string, range: string = "1d", interval: string = "1d", includeEvents: boolean = false): Promise<YahooChartResult | null> {
-  const data = await spawnPythonBridge({
-    action: "chart",
-    symbol: symbol,
-    range: range,
-    interval: interval
-  });
-  return data as YahooChartResult;
+async function fetchFromYahoo(
+  symbol: string,
+  range: string = "1d",
+  interval: string = "1d",
+  includeEvents: boolean = false
+): Promise<YahooChartResult | null> {
+  const events = includeEvents ? "&events=div%2Csplit" : "";
+  const url = `${YF_BASE}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${events}`;
+  const url2 = `${YF_BASE2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${events}`;
+  for (const endpoint of [url, url2]) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: YF_HEADERS,
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as YahooChartResult;
+      if (data?.chart?.error) {
+        console.error("Yahoo chart error for", symbol, data.chart.error);
+        return null;
+      }
+      return data;
+    } catch (err) {
+      console.error("fetchFromYahoo error for", symbol, err);
+    }
+  }
+  return null;
 }
 
-async function fetchBatchFromYahoo(symbols: string[], range: string = "1d", interval: string = "1d"): Promise<Record<string, YahooChartResult>> {
+async function fetchBatchFromYahoo(
+  symbols: string[],
+  range: string = "1d",
+  interval: string = "1d"
+): Promise<Record<string, YahooChartResult>> {
   if (!symbols || symbols.length === 0) return {};
-  const data = await spawnPythonBridge({
-    action: "batch_chart",
-    symbols: symbols,
-    range: range,
-    interval: interval
-  });
-  return data as Record<string, YahooChartResult>;
+  // Fan out concurrently (reuses existing runWithConcurrency helper below)
+  const results = await runWithConcurrency(8, symbols, (sym) =>
+    fetchFromYahoo(sym, range, interval).then((data) => ({ sym, data }))
+  );
+  const output: Record<string, YahooChartResult> = {};
+  for (const { sym, data } of results) {
+    if (data) output[sym] = data;
+  }
+  return output;
 }
 
-// Fetch quote summary for fundamentals
+// Fetch quote summary for fundamentals (financialData + defaultKeyStatistics)
 async function fetchQuoteSummary(symbol: string): Promise<any | null> {
-  const data = await spawnPythonBridge({ action: "quote", symbol: symbol });
-  return data?.quoteSummary?.result?.[0] || null;
+  const modules = "defaultKeyStatistics,financialData";
+  const url = `${YF_BASE}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+  const url2 = `${YF_BASE2}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+  for (const endpoint of [url, url2]) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: YF_HEADERS,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.quoteSummary?.result?.[0]) {
+        return data.quoteSummary.result[0];
+      }
+    } catch (err) {
+      console.error("fetchQuoteSummary error for", symbol, err);
+    }
+  }
+  return null;
 }
 
 function getTodayDate(): string {
