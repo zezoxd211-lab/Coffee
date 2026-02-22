@@ -1,5 +1,8 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import path from "path";
 import { storage } from "./storage";
 import { TADAWUL_STOCKS } from "./tadawulStocks";
 import {
@@ -8,12 +11,29 @@ import {
   fetchMarketStatus,
 } from "./saudiExchangeApi";
 
-const YAHOO_FINANCE_BASE = "https://query2.finance.yahoo.com/v8/finance/chart";
-const YAHOO_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-  "X-API-KEY": "dj0yJmk9U2FWNjJ3UUFlNWltJmQ9WVdrOVVtdzFWV1o0TW5vbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PTEw",
-  "X-APP-ID": "Rl5Ufx2z"
-};
+// Python Bridge Helper
+const execFileAsync = promisify(execFile);
+
+async function spawnPythonBridge(args: any): Promise<any> {
+  const scriptPath = path.join(process.cwd(), "server", "yfinance_bridge.py");
+  try {
+    const { stdout, stderr } = await execFileAsync("python", [scriptPath, JSON.stringify(args)], { maxBuffer: 1024 * 1024 * 10 }); // 10MB buffer
+    try {
+      const data = JSON.parse(stdout.trim());
+      if (data.error) {
+        console.error("Python bridge returned error:", data.error);
+        return null;
+      }
+      return data;
+    } catch (parseError) {
+      console.error("Failed to parse Python output. Stdout:", stdout.substring(0, 500));
+      return null;
+    }
+  } catch (err: any) {
+    console.error("Python bridge execution exception:", err);
+    return null;
+  }
+}
 
 // Simple in-memory cache with TTL
 interface CacheEntry<T> {
@@ -142,45 +162,19 @@ interface YahooChartResult {
 }
 
 async function fetchFromYahoo(symbol: string, range: string = "1d", interval: string = "1d", includeEvents: boolean = false): Promise<YahooChartResult | null> {
-  try {
-    const eventsParam = includeEvents ? "&events=div,split" : "";
-    const url = `${YAHOO_FINANCE_BASE}/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${eventsParam}`;
-    const response = await fetch(url, {
-      headers: YAHOO_HEADERS
-    });
-
-    if (!response.ok) {
-      console.error(`Yahoo Finance API error for ${symbol}: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    return data as YahooChartResult;
-  } catch (error) {
-    console.error(`Error fetching ${symbol} from Yahoo Finance:`, error);
-    return null;
-  }
+  const data = await spawnPythonBridge({
+    action: "chart",
+    symbol: symbol,
+    range: range,
+    interval: interval
+  });
+  return data as YahooChartResult;
 }
 
 // Fetch quote summary for fundamentals
 async function fetchQuoteSummary(symbol: string): Promise<any | null> {
-  try {
-    const modules = "summaryProfile,financialData,defaultKeyStatistics,earningsHistory,incomeStatementHistory";
-    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
-    const response = await fetch(url, {
-      headers: YAHOO_HEADERS
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    return data.quoteSummary?.result?.[0] || null;
-  } catch (error) {
-    console.error(`Error fetching quote summary for ${symbol}:`, error);
-    return null;
-  }
+  const data = await spawnPythonBridge({ action: "quote", symbol: symbol });
+  return data?.quoteSummary?.result?.[0] || null;
 }
 
 function getTodayDate(): string {
@@ -1150,31 +1144,7 @@ export async function registerRoutes(
     }
 
     try {
-      // Fetch comprehensive financial data from Yahoo Finance
-      const modules = [
-        "incomeStatementHistory",
-        "incomeStatementHistoryQuarterly",
-        "balanceSheetHistory",
-        "balanceSheetHistoryQuarterly",
-        "cashflowStatementHistory",
-        "cashflowStatementHistoryQuarterly",
-        "financialData",
-        "defaultKeyStatistics",
-        "earningsHistory",
-        "earningsTrend"
-      ].join(",");
-
-      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
-      const response = await fetch(url, {
-        headers: YAHOO_HEADERS
-      });
-
-      if (!response.ok) {
-        return res.json({ symbol, financials: null, message: "Financial data not available" });
-      }
-
-      const data = await response.json();
-      const result = data.quoteSummary?.result?.[0];
+      const result = await fetchQuoteSummary(stockInfo.symbol);
 
       if (!result) {
         return res.json({ symbol, financials: null, message: "No financial data found" });
@@ -1365,19 +1335,12 @@ export async function registerRoutes(
         filename = `${symbol}_dividends.csv`;
 
       } else if (type === "financials") {
-        // Fetch financial statements
-        const modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory";
-        const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(stockInfo.symbol)}?modules=${modules}`;
-        const response = await fetch(url, {
-          headers: YAHOO_HEADERS
-        });
+        // Fetch financial statements via bridge
+        const result = await fetchQuoteSummary(stockInfo.symbol);
 
-        if (!response.ok) {
+        if (!result) {
           return res.status(404).json({ error: "Financial data not available" });
         }
-
-        const finData = await response.json();
-        const result = finData.quoteSummary?.result?.[0];
         const incomeHistory = result?.incomeStatementHistory?.incomeStatementHistory || [];
 
         csvContent = "Fiscal Year End,Total Revenue,Gross Profit,Operating Income,Net Income\n";
