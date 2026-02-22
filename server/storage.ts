@@ -1,8 +1,8 @@
-import { 
-  type User, type InsertUser, type WatchlistItem, type InsertWatchlistItem, 
+import {
+  type User, type InsertUser, type WatchlistItem, type InsertWatchlistItem,
   type PriceHistory, type FinancialStatement, type CorporateAction, type EarningsData, type DailySnapshot,
   type PortfolioItem, type InsertPortfolioItem,
-  users, watchlist, priceHistory, financialStatements, corporateActions, earningsData, dailySnapshots, portfolio 
+  users, watchlist, priceHistory, financialStatements, corporateActions, earningsData, dailySnapshots, portfolio
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
@@ -232,27 +232,27 @@ export class MemStorage implements IStorage {
   async saveDailySnapshot(data: Omit<DailySnapshot, 'id' | 'createdAt'>): Promise<DailySnapshot> {
     return { ...data, id: randomUUID(), createdAt: new Date() } as DailySnapshot;
   }
-  
+
   private portfolioItems: Map<string, PortfolioItem> = new Map();
-  
+
   async getPortfolio(): Promise<PortfolioItem[]> {
     return Array.from(this.portfolioItems.values());
   }
-  
+
   async addToPortfolio(item: InsertPortfolioItem): Promise<PortfolioItem> {
     const id = randomUUID();
     const portfolioItem: PortfolioItem = { ...item, id, addedAt: new Date() };
     this.portfolioItems.set(item.symbol, portfolioItem);
     return portfolioItem;
   }
-  
+
   async removeFromPortfolio(symbol: string): Promise<boolean> {
     return this.portfolioItems.delete(symbol);
   }
-  
+
   async getPortfolioItem(symbol: string): Promise<PortfolioItem | undefined> {
     return this.portfolioItems.get(symbol);
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage: IStorage = process.env.DATABASE_URL ? new DatabaseStorage() : new MemStorage();
