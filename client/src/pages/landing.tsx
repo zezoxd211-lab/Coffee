@@ -28,9 +28,9 @@ export default function Landing() {
                     <div className="container mx-auto flex h-16 items-center justify-between px-4 md:px-8">
                         <div className="flex items-center gap-2">
                             <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg">
-                                S
+                                L
                             </div>
-                            <span className="text-xl font-bold tracking-tight">live 92</span>
+                            <span className="text-xl font-bold tracking-tight">Live92</span>
                         </div>
                         <div className="flex items-center gap-4">
                             <button onClick={toggleLanguage} className="text-sm font-medium hover:text-primary transition-colors">
