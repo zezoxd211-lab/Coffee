@@ -38,8 +38,7 @@ export default function Market() {
   const { language } = useLanguage();
   const [filter, setFilter] = useState<string>("all");
 
-  const { data: yahooStocks = [], isLoading: stocksLoading } = useStocks();
-  const { data: seStocks = [], isLoading: seLoading } = useSaudiExchangeMarket();
+  const { data: stocks = [], isLoading: stocksLoading } = useStocks();
   const { data: seTASI } = useSaudiExchangeTASI();
   const { data: seStatus } = useSaudiExchangeStatus();
   const { data: indices = [] } = useMarketIndices();
@@ -47,55 +46,21 @@ export default function Market() {
   const { data: breadth } = useMarketBreadth();
   const { data: commodities = [] } = useCommodities();
 
-  // Merge Saudi Exchange live prices with Yahoo Finance catalog.
-  // SE data is preferred when available (comes in one batch call),
-  // otherwise falls back to Yahoo Finance per-stock data.
-  const mergedStocks = useMemo(() => {
-    const hasValidSeData = seStocks.length > 0 && seStocks.some((s: any) => s.lastPrice > 0);
-
-    if (hasValidSeData) {
-      // Build a Yahoo lookup map for metadata enrichment
-      const yahooMap = new Map(yahooStocks.map(s => [s.symbol, s]));
-      return seStocks.map(se => {
-        const yf = yahooMap.get(se.symbol);
-        return {
-          symbol: se.symbol,
-          name: se.companyNameEn || yf?.name || se.symbol,
-          nameAr: se.companyNameAr || yf?.nameAr || se.symbol,
-          sector: se.sector || yf?.sector || "—",
-          price: se.lastPrice || yf?.price || 0,
-          change: se.change ?? yf?.change ?? 0,
-          changePercent: se.changePercent ?? yf?.changePercent ?? 0,
-          volume: se.volume ?? 0,
-          openPrice: se.openPrice,
-          highPrice: se.highPrice,
-          lowPrice: se.lowPrice,
-          marketCap: yf?.marketCap || "N/A",
-          source: se.source || "saudi-exchange",
-          isMock: false,
-        };
-      });
-    }
-    // Fallback: use Yahoo Finance data only
-    return yahooStocks.map(s => ({ ...s, openPrice: 0, highPrice: 0, lowPrice: 0, source: "yahoo" }));
-  }, [seStocks, yahooStocks]);
-
   // Unique sectors for filter tabs
   const uniqueSectors = useMemo(() => {
-    const s = new Set(mergedStocks.map(s => s.sector).filter(Boolean));
+    const s = new Set(stocks.map(s => s.sector).filter(Boolean));
     return Array.from(s).sort();
-  }, [mergedStocks]);
+  }, [stocks]);
 
   const filtered = useMemo(() => {
-    if (filter === "all") return mergedStocks;
-    if (filter === "gainers") return mergedStocks.filter(s => s.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
-    if (filter === "losers") return mergedStocks.filter(s => s.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
-    return mergedStocks.filter(s => s.sector === filter);
-  }, [mergedStocks, filter]);
+    if (filter === "all") return stocks;
+    if (filter === "gainers") return stocks.filter(s => s.changePercent > 0).sort((a, b) => b.changePercent - a.changePercent);
+    if (filter === "losers") return stocks.filter(s => s.changePercent < 0).sort((a, b) => a.changePercent - b.changePercent);
+    return stocks.filter(s => s.sector === filter);
+  }, [stocks, filter]);
 
-  const isLoading = stocksLoading && seLoading;
-  const hasValidSeData = seStocks.length > 0 && seStocks.some((s: any) => s.lastPrice > 0);
-  const dataSource = hasValidSeData ? "Saudi Exchange" : "Yahoo Finance";
+  const isLoading = stocksLoading;
+  const dataSource = "Sahmk API";
   const isMarketOpen = seStatus?.status === "open";
 
   return (
@@ -180,8 +145,8 @@ export default function Market() {
                   <CardTitle>{language === "ar" ? "جميع الأسهم" : "All Stocks"}</CardTitle>
                   <CardDescription>
                     {language === "ar"
-                      ? `${mergedStocks.length} سهم مدرج`
-                      : `${mergedStocks.length} listed stocks · ${dataSource}`}
+                      ? `${stocks.length} سهم مدرج`
+                      : `${stocks.length} listed stocks · ${dataSource}`}
                   </CardDescription>
                 </div>
                 {isLoading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
@@ -215,7 +180,7 @@ export default function Market() {
                       <TableHead>{language === "ar" ? "الاسم" : "Name"}</TableHead>
                       <TableHead>{language === "ar" ? "القطاع" : "Sector"}</TableHead>
                       <TableHead className="text-right">{language === "ar" ? "السعر" : "Price"}</TableHead>
-                      <TableHead className="text-right">{language === "ar" ? "فتح / أعلى / أدنى" : "Open/High/Low"}</TableHead>
+                      <TableHead className="text-right">{language === "ar" ? "القيمة السوقية" : "Market Cap"}</TableHead>
                       <TableHead className="text-right">{language === "ar" ? "التغير" : "Change"}</TableHead>
                       <TableHead className="text-right">{language === "ar" ? "الحجم" : "Volume"}</TableHead>
                     </TableRow>
@@ -236,9 +201,7 @@ export default function Market() {
                           {stock.price > 0 ? `${stock.price.toFixed(2)} ﷼` : "—"}
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
-                          {Number(stock.openPrice) > 0
-                            ? `${Number(stock.openPrice).toFixed(2)} / ${Number(stock.highPrice).toFixed(2)} / ${Number(stock.lowPrice).toFixed(2)}`
-                            : stock.marketCap !== "N/A" ? `MCap: ${stock.marketCap}` : "—"}
+                          {stock.marketCap && stock.marketCap !== "N/A" ? stock.marketCap : "—"}
                         </TableCell>
                         <TableCell className="text-right">
                           <span className={cn(

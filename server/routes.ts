@@ -3,113 +3,18 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { TADAWUL_STOCKS } from "./tadawulStocks";
 import {
-  fetchSaudiExchangeMainMarket,
-  fetchSaudiExchangeTASI,
-  fetchMarketStatus,
-} from "./saudiExchangeApi";
-
-// ─── Yahoo Finance Native Fetch Bridge ───────────────────────────────────────
-// Replaces the old Python/yfinance bridge. Uses Yahoo Finance's undocumented
-// v8 chart and v10 quoteSummary APIs directly via Node fetch().
-// Includes cookie+crumb auth, required for Vercel/server IPs to avoid 401/403.
-
-const YF_BASE = "https://query1.finance.yahoo.com";
-const YF_BASE2 = "https://query2.finance.yahoo.com";
-
-const YF_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
-
-// Crumb state — cached across requests within the same serverless invocation
-let yfCrumb: string | null = null;
-let yfCookie: string | null = null;
-let yfCrumbExpiry = 0;
-
-async function getYFCrumb(): Promise<{ crumb: string; cookie: string } | null> {
-  const now = Date.now();
-  // Cache crumb for 30 minutes
-  if (yfCrumb && yfCookie && now < yfCrumbExpiry) {
-    return { crumb: yfCrumb, cookie: yfCookie };
-  }
-
-  try {
-    // Step 1: Hit finance.yahoo.com to get the consent/session cookie
-    const consentRes = await fetch("https://finance.yahoo.com", {
-      headers: {
-        "User-Agent": YF_UA,
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-
-    // Grab all Set-Cookie headers
-    const rawCookies = consentRes.headers.get("set-cookie") || "";
-    // Parse cookies into a simple header string
-    const cookieStr = rawCookies
-      .split(",")
-      .map((c) => c.split(";")[0].trim())
-      .filter(Boolean)
-      .join("; ");
-
-    if (!cookieStr) {
-      console.warn("YF: no cookies received from finance.yahoo.com");
-    }
-
-    // Step 2: Fetch the crumb using the cookie
-    const crumbRes = await fetch(`${YF_BASE}/v1/test/getcrumb`, {
-      headers: {
-        "User-Agent": YF_UA,
-        Accept: "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-        Cookie: cookieStr || "",
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!crumbRes.ok) {
-      // Try BASE2
-      const crumbRes2 = await fetch(`${YF_BASE2}/v1/test/getcrumb`, {
-        headers: {
-          "User-Agent": YF_UA,
-          Accept: "*/*",
-          Cookie: cookieStr || "",
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!crumbRes2.ok) {
-        console.error("YF: failed to get crumb, status", crumbRes2.status);
-        return null;
-      }
-      const crumb2 = await crumbRes2.text();
-      yfCrumb = crumb2.trim();
-      yfCookie = cookieStr;
-      yfCrumbExpiry = now + 28 * 60 * 1000; // 28 minutes
-      return { crumb: yfCrumb, cookie: yfCookie };
-    }
-
-    const crumb = await crumbRes.text();
-    yfCrumb = crumb.trim();
-    yfCookie = cookieStr;
-    yfCrumbExpiry = now + 28 * 60 * 1000; // 28 minutes
-    console.log("YF: crumb obtained:", yfCrumb.substring(0, 12) + "...");
-    return { crumb: yfCrumb, cookie: yfCookie };
-  } catch (err) {
-    console.error("YF: crumb fetch exception:", err);
-    return null;
-  }
-}
-
-function buildYFHeaders(cookie?: string): Record<string, string> {
-  return {
-    "User-Agent": YF_UA,
-    Accept: "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9",
-    ...(cookie ? { Cookie: cookie } : {}),
-  };
-}
-
+  fetchMarketSummary,
+  fetchBulkQuotes,
+  fetchHistoricalData as fetchSahmkHistoricalData,
+  fetchCompanyInfo,
+  fetchTopGainers,
+  fetchTopLosers,
+  fetchMarketVolume,
+  fetchMarketValue,
+  fetchSectorPerformance,
+  fetchFinancials as fetchSahmkFinancials,
+  fetchDividends as fetchSahmkDividends,
+} from "./sahmkApi"; // Corrected import to remove trailing comma if it was there
 
 // Simple in-memory cache with TTL
 interface CacheEntry<T> {
@@ -151,176 +56,7 @@ const CACHE_TTL = {
   NEWS: 300000,          // 5 minutes
 };
 
-/**
- * Run async tasks with a maximum concurrency to avoid rate-limiting.
- * e.g. runWithConcurrency(5, items, item => fetchSomething(item))
- */
-async function runWithConcurrency<T, R>(
-  concurrency: number,
-  items: T[],
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = [];
-  let index = 0;
-  async function worker() {
-    while (index < items.length) {
-      const i = index++;
-      results[i] = await fn(items[i]);
-    }
-  }
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
-  await Promise.all(workers);
-  return results;
-}
 
-/**
- * Core 30 highest-liquidity Tadawul stocks used for dashboard bulk operations
- * (movers, breadth, sectors). Kept small to avoid Yahoo Finance rate limiting.
- */
-const DASHBOARD_SYMBOLS = [
-  "2222", // Saudi Aramco
-  "1120", // Al Rajhi Bank
-  "1180", // SNB
-  "1150", // Alinma Bank
-  "1010", // Riyad Bank
-  "1050", // SABB
-  "1060", // Banque Saudi Fransi
-  "1080", // Arab National Bank
-  "1020", // Bank AlJazira
-  "1140", // Al Bilad Bank
-  "2010", // SABIC
-  "2020", // SABIC Agri-Nutrients
-  "1211", // Ma'aden
-  "2050", // SAFCO
-  "2060", // Tasnee
-  "2070", // Saudi Kayan
-  "7010", // STC
-  "7020", // Mobily
-  "7030", // Zain KSA
-  "5110", // SEC
-  "2222", // (already added — de-dup harmless)
-  "4300", // Dar Al Arkan
-  "4030", // Bahri
-  "2380", // Petro Rabigh
-  "2381", // Arabian Drilling
-  "4007", // Dr. Sulaiman Al Habib
-  "4003", // Extra (United Electronics)
-  "4001", // Abdullah Al Othaim
-  "8010", // Tawuniya
-  "8180", // BUPA Arabia
-].filter((v, i, a) => a.indexOf(v) === i); // de-duplicate
-
-interface YahooChartResult {
-  chart: {
-    result: Array<{
-      meta: {
-        regularMarketPrice: number;
-        previousClose: number;
-        chartPreviousClose?: number;
-        regularMarketChange?: number;
-        regularMarketChangePercent?: number;
-        currency: string;
-        symbol: string;
-      };
-      timestamp: number[];
-      indicators: {
-        quote: Array<{
-          open: number[];
-          high: number[];
-          low: number[];
-          close: number[];
-          volume: number[];
-        }>;
-      };
-    }>;
-    error: any;
-  };
-}
-
-async function fetchFromYahoo(
-  symbol: string,
-  range: string = "1d",
-  interval: string = "1d",
-  includeEvents: boolean = false
-): Promise<YahooChartResult | null> {
-  const auth = await getYFCrumb();
-  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
-  const events = includeEvents ? "&events=div%2Csplit" : "";
-  const headers = buildYFHeaders(auth?.cookie);
-
-  const url = `${YF_BASE}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${crumbParam}${events}`;
-  const url2 = `${YF_BASE2}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}&includePrePost=false${crumbParam}${events}`;
-
-  for (const endpoint of [url, url2]) {
-    try {
-      const res = await fetch(endpoint, {
-        headers,
-        signal: AbortSignal.timeout(12000),
-      });
-      if (res.status === 401 || res.status === 403) {
-        // Crumb may be stale — invalidate and retry once without crumb
-        yfCrumb = null; yfCookie = null; yfCrumbExpiry = 0;
-        console.warn("YF: auth rejected for", symbol, "status", res.status);
-        continue;
-      }
-      if (!res.ok) continue;
-      const data = (await res.json()) as YahooChartResult;
-      if (data?.chart?.error) {
-        console.error("Yahoo chart error for", symbol, data.chart.error);
-        return null;
-      }
-      return data;
-    } catch (err) {
-      console.error("fetchFromYahoo error for", symbol, err);
-    }
-  }
-  return null;
-}
-
-async function fetchBatchFromYahoo(
-  symbols: string[],
-  range: string = "1d",
-  interval: string = "1d"
-): Promise<Record<string, YahooChartResult>> {
-  if (!symbols || symbols.length === 0) return {};
-  // Pre-fetch crumb once for all batch calls
-  await getYFCrumb();
-  // Fan out concurrently (reuses existing runWithConcurrency helper below)
-  const results = await runWithConcurrency(8, symbols, (sym) =>
-    fetchFromYahoo(sym, range, interval).then((data) => ({ sym, data }))
-  );
-  const output: Record<string, YahooChartResult> = {};
-  for (const { sym, data } of results) {
-    if (data) output[sym] = data;
-  }
-  return output;
-}
-
-// Fetch quote summary for fundamentals (financialData + defaultKeyStatistics)
-async function fetchQuoteSummary(symbol: string): Promise<any | null> {
-  const auth = await getYFCrumb();
-  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : "";
-  const headers = buildYFHeaders(auth?.cookie);
-  const modules = "defaultKeyStatistics,financialData";
-  const url = `${YF_BASE}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
-  const url2 = `${YF_BASE2}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
-  for (const endpoint of [url, url2]) {
-    try {
-      const res = await fetch(endpoint, {
-        headers,
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.quoteSummary?.result?.[0]) {
-        return data.quoteSummary.result[0];
-      }
-    } catch (err) {
-      console.error("fetchQuoteSummary error for", symbol, err);
-    }
-  }
-  return null;
-}
 
 
 function getTodayDate(): string {
@@ -361,12 +97,49 @@ const STOCK_SYMBOLS: Record<string, { symbol: string; name: string; nameAr: stri
   return result;
 })();
 
+/**
+ * Core 30 highest-liquidity Tadawul stocks used for dashboard bulk operations
+ * (movers, breadth, sectors). Kept small to avoid rate limiting.
+ */
+const DASHBOARD_SYMBOLS = [
+  "2222", // Saudi Aramco
+  "1120", // Al Rajhi Bank
+  "1180", // SNB
+  "1150", // Alinma Bank
+  "1010", // Riyad Bank
+  "1050", // SABB
+  "1060", // Banque Saudi Fransi
+  "1080", // Arab National Bank
+  "1020", // Bank AlJazira
+  "1140", // Al Bilad Bank
+  "2010", // SABIC
+  "2020", // SABIC Agri-Nutrients
+  "1211", // Ma'aden
+  "2050", // SAFCO
+  "2060", // Tasnee
+  "2070", // Saudi Kayan
+  "7010", // STC
+  "7020", // Mobily
+  "7030", // Zain KSA
+  "5110", // SEC
+  "2222", // (already added — de-dup harmless)
+  "4300", // Dar Al Arkan
+  "4030", // Bahri
+  "2380", // Petro Rabigh
+  "2381", // Arabian Drilling
+  "4007", // Dr. Sulaiman Al Habib
+  "4003", // Extra (United Electronics)
+  "4001", // Abdullah Al Othaim
+  "8010", // Tawuniya
+  "8180", // BUPA Arabia
+].filter((v, i, a) => a.indexOf(v) === i); // de-duplicate
+
 export async function registerRoutes(
   httpServer: Server | null,
   app: Express
 ): Promise<Server | null> {
 
-  // Get current TASI OHLC data
+  // Get current TASI OHLC data from Sahmk Market Summary
   app.get("/api/market/tasi", async (req: Request, res: Response) => {
     const cacheKey = "market:tasi";
     const cached = getCached<any>(cacheKey);
@@ -375,35 +148,36 @@ export async function registerRoutes(
       return;
     }
 
-    const yahooData = await fetchFromYahoo("^TASI.SR", "1d", "1d");
+    const sahmkData = await fetchMarketSummary();
+    if (sahmkData && sahmkData.indices && Array.isArray(sahmkData.indices)) {
+      const tasiIndex = sahmkData.indices.find((i: any) => i.symbol === "^TASI.SR" || i.name?.includes("TASI") || i.name?.includes("Tadawul"));
 
-    if (!yahooData || !yahooData.chart.result || yahooData.chart.error) {
-      res.json({
-        index: "TASI",
-        date: getTodayDate(),
-        open: 11845.20,
-        high: 11920.45,
-        low: 11810.15,
-        close: 11890.30,
-        volume: "245M",
-        isMock: true
-      });
-      return;
+      if (tasiIndex) {
+        const tasiData = {
+          index: "TASI",
+          date: getTodayDate(),
+          open: Number(tasiIndex.open) || Number(tasiIndex.value) || 11845.20,
+          high: Number(tasiIndex.high) || Number(tasiIndex.value) || 11920.45,
+          low: Number(tasiIndex.low) || Number(tasiIndex.value) || 11810.15,
+          close: Number(tasiIndex.value) || 11890.30,
+          volume: tasiIndex.volume ? formatVolume(Number(tasiIndex.volume)) : "N/A",
+          isMock: false
+        };
+        setCache(cacheKey, tasiData, CACHE_TTL.TASI);
+        return res.json(tasiData);
+      }
     }
 
-    const result = yahooData.chart.result[0];
-    const quote = result.indicators.quote[0];
-    const lastIdx = quote.close.length - 1;
-
+    // Fallback Mock
     const tasiData = {
       index: "TASI",
       date: getTodayDate(),
-      open: quote.open[lastIdx] || result.meta.previousClose,
-      high: quote.high[lastIdx] || result.meta.regularMarketPrice,
-      low: quote.low[lastIdx] || result.meta.regularMarketPrice,
-      close: result.meta.regularMarketPrice,
-      volume: quote.volume[lastIdx] ? formatVolume(quote.volume[lastIdx]) : "N/A",
-      isMock: false
+      open: 11845.20,
+      high: 11920.45,
+      low: 11810.15,
+      close: 11890.30,
+      volume: "245M",
+      isMock: true
     };
     setCache(cacheKey, tasiData, CACHE_TTL.TASI);
     res.json(tasiData);
@@ -419,24 +193,18 @@ export async function registerRoutes(
       return;
     }
 
-    const range = days <= 30 ? "1mo" : days <= 90 ? "3mo" : "6mo";
+    const sahmkData = await fetchSahmkHistoricalData("TASI", days);
 
-    const yahooData = await fetchFromYahoo("^TASI.SR", range, "1d");
-
-    if (!yahooData || !yahooData.chart.result || yahooData.chart.error) {
+    if (!sahmkData || !Array.isArray(sahmkData)) {
       const mockHistory = generateMockHistory(days);
       res.json({ data: mockHistory, isMock: true });
       return;
     }
 
-    const result = yahooData.chart.result[0];
-    const timestamps = result.timestamp;
-    const closes = result.indicators.quote[0].close;
-
-    const historyData = timestamps.map((ts, i) => ({
-      date: new Date(ts * 1000).toISOString().split("T")[0],
-      price: closes[i] ? Number(closes[i].toFixed(2)) : null
-    })).filter(d => d.price !== null) as { date: string; price: number }[];
+    const historyData = sahmkData.map((d: any) => ({
+      date: d.date || d.timestamp || new Date().toISOString().split("T")[0],
+      price: Number(d.close || d.price) || null
+    })).filter(d => d.price !== null);
 
     const trimmedData = historyData.slice(-days);
 
@@ -445,7 +213,7 @@ export async function registerRoutes(
     res.json(historyResult);
   });
 
-  // Get all market indices - fetch from Yahoo Finance with 5-day range
+  // Get all market indices - fetch from Sahmk API
   app.get("/api/market/indices", async (req: Request, res: Response) => {
     const cacheKey = "market:indices";
     const cached = getCached<any[]>(cacheKey);
@@ -454,57 +222,31 @@ export async function registerRoutes(
       return;
     }
 
-    const indexSymbols = Object.values(INDEX_SYMBOLS);
-    const indexNames = Object.keys(INDEX_SYMBOLS);
-    const batchData = await fetchBatchFromYahoo(indexSymbols, "5d", "1d");
+    const sahmkData = await fetchMarketSummary();
+    const indices: any[] = [];
 
-    const indexPromises = indexNames.map(async (name) => {
-      const symbol = INDEX_SYMBOLS[name as keyof typeof INDEX_SYMBOLS];
-      const data = batchData[symbol];
-
-      if (data && data.chart && data.chart.result && !data.chart.error) {
-        const result = data.chart.result[0];
-        const quoteData = result.indicators?.quote?.[0]?.close;
-
-        if (quoteData && Array.isArray(quoteData)) {
-          const closes = quoteData.filter((c: number | null) => c !== null);
-
-          if (closes.length >= 2) {
-            const currentPrice = closes[closes.length - 1];
-            const previousClose = closes[closes.length - 2] || (result.meta?.chartPreviousClose || currentPrice);
-            const change = currentPrice - previousClose;
-            const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-
-            return {
-              name,
-              value: Number(currentPrice.toFixed(2)),
-              change: Number(change.toFixed(2)),
-              changePercent: Number(changePercent.toFixed(2)),
-              isMock: false
-            };
-          }
-        }
-
-        // Fallback to meta data
-        const currentPrice = result.meta?.regularMarketPrice || 0;
-        const previousClose = result.meta?.chartPreviousClose || result.meta?.previousClose || currentPrice;
-        const change = currentPrice - previousClose;
-        const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-
-        return {
-          name,
-          value: Number(currentPrice.toFixed(2)),
-          change: Number(change.toFixed(2)),
-          changePercent: Number(changePercent.toFixed(2)),
+    // Map Sahmk Market Summary payload to the expected shape if valid
+    // Expected returned array of objects: { name, value, change, changePercent }
+    if (sahmkData && Array.isArray(sahmkData.indices)) {
+      sahmkData.indices.forEach((idx: any) => {
+        indices.push({
+          name: idx.name || idx.symbol || "Index",
+          value: Number(idx.value?.toFixed(2)) || 0,
+          change: Number(idx.change?.toFixed(2)) || 0,
+          changePercent: Number(idx.change_percent?.toFixed(2)) || 0,
           isMock: false
-        };
-      }
+        });
+      });
+    }
 
-      // Return mock data if API fails
-      return getMockIndexData(name);
-    });
+    // Fallback to mock data if Sahmk API fails or lacks expected data
+    if (indices.length === 0) {
+      const indexNames = Object.keys(INDEX_SYMBOLS);
+      indexNames.forEach(name => {
+        indices.push(getMockIndexData(name));
+      });
+    }
 
-    const indices = await Promise.all(indexPromises);
     setCache(cacheKey, indices, CACHE_TTL.INDICES);
     res.json(indices);
   });
@@ -518,42 +260,42 @@ export async function registerRoutes(
     const cached = getCached<any[]>(cacheKey);
     if (cached) { res.json(cached); return; }
 
-    // Fetch live prices for the top 30 stocks with batch processing
+    // Fetch live prices for the top 30 stocks with batch processing via Sahmk API
     const liveEntries = DASHBOARD_SYMBOLS
       .map(id => [id, STOCK_SYMBOLS[id]] as [string, typeof STOCK_SYMBOLS[string]])
       .filter(([, info]) => !!info);
 
-    const liveSymbols = liveEntries.map(([, info]) => info.symbol);
-    const batchData = await fetchBatchFromYahoo(liveSymbols, "5d", "1d");
+    const liveSymbols = liveEntries.map(([id]) => id);
+    let batchData: any = null;
+
+    // Sahmk API: Bulk quotes (Requires Starter+ plan).
+    // The response is an array of quotes.
+    const sahmkBulkResponse = await fetchBulkQuotes(liveSymbols);
+    if (sahmkBulkResponse && Array.isArray(sahmkBulkResponse)) {
+      batchData = sahmkBulkResponse.reduce((acc: any, item: any) => {
+        if (item.symbol) acc[item.symbol] = item;
+        return acc;
+      }, {});
+    }
 
     const livePrices = liveEntries.map(([id, info]) => {
-      const data = batchData[info.symbol];
-      if (data && data.chart && data.chart.result && !data.chart.error) {
-        const result = data.chart.result[0];
-        const closes = (result.indicators?.quote?.[0]?.close || []).filter((c: number | null) => c !== null);
-        if (closes.length >= 1) {
-          const currentPrice = closes[closes.length - 1];
-          const previousClose = closes.length >= 2 ? closes[closes.length - 2] : (result.meta?.chartPreviousClose || currentPrice);
-          const change = currentPrice - previousClose;
-          const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-          return {
-            symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
-            price: Number(currentPrice.toFixed(2)), change: Number(change.toFixed(2)),
-            changePercent: Number(changePercent.toFixed(2)),
-            marketCap: getMarketCap(id), pe: getPE(id), eps: getEPS(id),
-            dividendYield: getDividendYield(id), volume: "N/A", isMock: false,
-          };
-        }
-        const currentPrice = result.meta?.regularMarketPrice || 0;
-        const previousClose = result.meta?.chartPreviousClose || result.meta?.previousClose || currentPrice;
-        const change = currentPrice - previousClose;
-        const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+      const data = batchData ? batchData[id] : null;
+
+      if (data) {
         return {
-          symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
-          price: Number(currentPrice.toFixed(2)), change: Number(change.toFixed(2)),
-          changePercent: Number(changePercent.toFixed(2)),
-          marketCap: getMarketCap(id), pe: getPE(id), eps: getEPS(id),
-          dividendYield: getDividendYield(id), volume: "N/A", isMock: false,
+          symbol: id,
+          name: info.name,
+          nameAr: info.nameAr,
+          sector: info.sector,
+          price: Number(data.price?.toFixed(2)) || 0,
+          change: Number(data.change?.toFixed(2)) || 0,
+          changePercent: Number(data.change_percent?.toFixed(2)) || 0,
+          marketCap: getMarketCap(id),
+          pe: getPE(id),
+          eps: getEPS(id),
+          dividendYield: getDividendYield(id),
+          volume: data.volume ? formatVolume(data.volume) : "N/A",
+          isMock: false,
         };
       }
       return getMockStockData(id, info);
@@ -590,13 +332,11 @@ export async function registerRoutes(
       return;
     }
 
-    const range = days <= 7 ? "5d" : days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : "1y";
-
-    // Fetch historical data with events (dividends, splits) and fundamentals in parallel
-    const [historyData, eventsData, fundamentalsData] = await Promise.all([
-      fetchFromYahoo(stockInfo.symbol, range, "1d"),
-      fetchFromYahoo(stockInfo.symbol, "1y", "1d", true),
-      fetchQuoteSummary(stockInfo.symbol)
+    // Fetch historical data, dividends/splits, and fundamentals from Sahmk API
+    const [sahmkHistory, sahmkDividends, sahmkCompany] = await Promise.all([
+      fetchSahmkHistoricalData(stockInfo.symbol, days),
+      fetchSahmkDividends(stockInfo.symbol),
+      fetchCompanyInfo(stockInfo.symbol)
     ]);
 
     let price = 0;
@@ -606,47 +346,35 @@ export async function registerRoutes(
     let history: { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[] = [];
     let totalVolume = 0;
 
-    if (historyData && historyData.chart.result && !historyData.chart.error) {
-      const result = historyData.chart.result[0];
-      const timestamps = result.timestamp || [];
-      const quote = result.indicators.quote[0];
-      const opens = quote.open || [];
-      const highs = quote.high || [];
-      const lows = quote.low || [];
-      const closes = quote.close || [];
-      const volumes = quote.volume || [];
+    // Map Sahmk Historical Data (array of OHLCV objects)
+    if (sahmkHistory && Array.isArray(sahmkHistory) && sahmkHistory.length > 0) {
+      history = sahmkHistory.map((day: any) => ({
+        date: day.date?.split("T")[0] || "",
+        price: Number(day.close?.toFixed(2)) || 0,
+        open: Number(day.open?.toFixed(2)) || undefined,
+        high: Number(day.high?.toFixed(2)) || undefined,
+        low: Number(day.low?.toFixed(2)) || undefined,
+        close: Number(day.close?.toFixed(2)) || 0,
+        volume: Number(day.volume) || 0
+      })).filter(h => h.date !== "");
 
-      // Build history array with full OHLCV data
-      history = timestamps.map((ts: number, i: number) => {
-        if (closes[i] === null) return null;
-        return {
-          date: new Date(ts * 1000).toISOString().split("T")[0],
-          price: Number(closes[i].toFixed(2)),
-          open: opens[i] ? Number(opens[i].toFixed(2)) : undefined,
-          high: highs[i] ? Number(highs[i].toFixed(2)) : undefined,
-          low: lows[i] ? Number(lows[i].toFixed(2)) : undefined,
-          close: Number(closes[i].toFixed(2)),
-          volume: volumes[i] || 0
-        };
-      }).filter((d: any) => d !== null) as { date: string; price: number; open?: number; high?: number; low?: number; close?: number; volume?: number }[];
+      // Sort chronological
+      history.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      // Calculate total volume
-      totalVolume = volumes.reduce((sum: number, v: number | null) => sum + (v || 0), 0);
+      totalVolume = history.reduce((sum, h) => sum + (h.volume || 0), 0);
 
-      // Calculate change from last two trading days
-      const validCloses = closes.filter((c: number | null) => c !== null);
-      if (validCloses.length >= 2) {
-        price = Number(validCloses[validCloses.length - 1].toFixed(2));
-        const previousClose = validCloses[validCloses.length - 2];
+      if (history.length >= 2) {
+        price = history[history.length - 1].close || 0;
+        const previousClose = history[history.length - 2].close || 0;
         change = Number((price - previousClose).toFixed(2));
         changePercent = previousClose > 0 ? Number(((change / previousClose) * 100).toFixed(2)) : 0;
         isMock = false;
-      } else if (validCloses.length === 1) {
-        price = Number(validCloses[0].toFixed(2));
+      } else if (history.length === 1) {
+        price = history[0].close || 0;
         isMock = false;
       }
     } else {
-      // Use mock data with OHLCV
+      // Use mock data with OHLCV if API fails or no data
       const mockData = getMockStockData(symbol, stockInfo);
       price = mockData.price;
       change = mockData.change;
@@ -663,76 +391,57 @@ export async function registerRoutes(
     const technicalIndicators = calculateTechnicalIndicators(prices);
     const analystRatings = getAnalystRatings(symbol);
 
-    // Extract dividends from events data
+    // Extract dividends from Sahmk Data
     const dividends: { date: string; amount: number }[] = [];
     const splits: { date: string; ratio: string }[] = [];
 
-    if (eventsData && eventsData.chart.result?.[0]) {
-      const events = (eventsData.chart.result[0] as any).events;
-      if (events?.dividends) {
-        Object.values(events.dividends).forEach((div: any) => {
-          dividends.push({
-            date: new Date(div.date * 1000).toISOString().split("T")[0],
-            amount: Number(div.amount.toFixed(4))
-          });
+    if (sahmkDividends && sahmkDividends.dividends && Array.isArray(sahmkDividends.dividends)) {
+      sahmkDividends.dividends.forEach((div: any) => {
+        dividends.push({
+          date: div.date || "",
+          amount: Number(div.amount?.toFixed(4)) || 0
         });
-        dividends.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
-      if (events?.splits) {
-        Object.values(events.splits).forEach((split: any) => {
-          splits.push({
-            date: new Date(split.date * 1000).toISOString().split("T")[0],
-            ratio: `${split.numerator}:${split.denominator}`
-          });
-        });
-        splits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
+      });
+      dividends.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    // Extract real fundamentals from Yahoo Finance quote summary (use raw values for calculations)
+    if (sahmkDividends && sahmkDividends.splits && Array.isArray(sahmkDividends.splits)) {
+      sahmkDividends.splits.forEach((split: any) => {
+        splits.push({
+          date: split.date || "",
+          ratio: split.ratio || "1:1"
+        });
+      });
+      splits.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+
+    // Extract real fundamentals from Sahmk Company Info endpoint
     let realFundamentals: any = null;
-    if (fundamentalsData) {
-      const fd = fundamentalsData.financialData;
-      const ks = fundamentalsData.defaultKeyStatistics;
+    if (sahmkCompany && Object.keys(sahmkCompany).length > 0) {
       realFundamentals = {
-        // Raw numeric values for calculations
-        revenueRaw: fd?.totalRevenue?.raw || null,
-        revenueGrowthRaw: fd?.revenueGrowth?.raw || null,
-        grossMarginsRaw: fd?.grossMargins?.raw ? fd.grossMargins.raw * 100 : null,
-        operatingMarginsRaw: fd?.operatingMargins?.raw ? fd.operatingMargins.raw * 100 : null,
-        profitMarginsRaw: fd?.profitMargins?.raw ? fd.profitMargins.raw * 100 : null,
-        returnOnEquityRaw: fd?.returnOnEquity?.raw ? fd.returnOnEquity.raw * 100 : null,
-        returnOnAssetsRaw: fd?.returnOnAssets?.raw ? fd.returnOnAssets.raw * 100 : null,
-        ebitdaRaw: fd?.ebitda?.raw || null,
-        freeCashflowRaw: fd?.freeCashflow?.raw || null,
-        targetMeanPriceRaw: fd?.targetMeanPrice?.raw || null,
-        recommendationMean: fd?.recommendationMean?.raw || null,
-        recommendationKey: fd?.recommendationKey || null,
-        betaRaw: ks?.beta?.raw || null,
-        trailingPERaw: ks?.trailingPE?.raw || null,
-        forwardPERaw: ks?.forwardPE?.raw || null,
-        priceToBookRaw: ks?.priceToBook?.raw || null,
-        enterpriseToRevenueRaw: ks?.enterpriseToRevenue?.raw || null,
-        enterpriseToEbitdaRaw: ks?.enterpriseToEbitda?.raw || null,
-        week52HighRaw: ks?.["52WeekHigh"]?.raw || null,
-        week52LowRaw: ks?.["52WeekLow"]?.raw || null,
-        // Formatted strings for display
-        revenue: fd?.totalRevenue?.fmt || "N/A",
-        revenueGrowth: fd?.revenueGrowth?.fmt || "N/A",
-        grossMargins: fd?.grossMargins?.fmt || "N/A",
-        operatingMargins: fd?.operatingMargins?.fmt || "N/A",
-        profitMargins: fd?.profitMargins?.fmt || "N/A",
-        returnOnEquity: fd?.returnOnEquity?.fmt || "N/A",
-        returnOnAssets: fd?.returnOnAssets?.fmt || "N/A",
-        ebitda: fd?.ebitda?.fmt || "N/A",
-        freeCashflow: fd?.freeCashflow?.fmt || "N/A",
-        targetMeanPrice: fd?.targetMeanPrice?.fmt || null,
-        beta: ks?.beta?.fmt || "N/A",
-        trailingPE: ks?.trailingPE?.fmt || "N/A",
-        forwardPE: ks?.forwardPE?.fmt || "N/A",
-        priceToBook: ks?.priceToBook?.fmt || "N/A",
-        enterpriseToRevenue: ks?.enterpriseToRevenue?.fmt || "N/A",
-        enterpriseToEbitda: ks?.enterpriseToEbitda?.fmt || "N/A"
+        // Raw numeric values mapping roughly to previous Yahoo Finance format
+        revenueRaw: sahmkCompany.total_revenue || null,
+        revenueGrowthRaw: sahmkCompany.revenue_growth || null,
+        grossMarginsRaw: sahmkCompany.gross_margin ? sahmkCompany.gross_margin * 100 : null,
+        operatingMarginsRaw: sahmkCompany.operating_margin ? sahmkCompany.operating_margin * 100 : null,
+        profitMarginsRaw: sahmkCompany.profit_margin ? sahmkCompany.profit_margin * 100 : null,
+        returnOnEquityRaw: sahmkCompany.roe ? sahmkCompany.roe * 100 : null,
+        returnOnAssetsRaw: sahmkCompany.roa ? sahmkCompany.roa * 100 : null,
+        ebitdaRaw: sahmkCompany.ebitda || null,
+        freeCashflowRaw: sahmkCompany.free_cash_flow || null,
+        targetMeanPriceRaw: sahmkCompany.target_price || null,
+        recommendationMean: sahmkCompany.analyst_rating || null,
+        recommendationKey: sahmkCompany.analyst_consensus || null,
+        betaRaw: sahmkCompany.beta || null,
+        trailingPERaw: sahmkCompany.pe_ratio || null,
+        forwardPERaw: sahmkCompany.forward_pe || null,
+        priceToBookRaw: sahmkCompany.price_to_book || null,
+        enterpriseToRevenueRaw: sahmkCompany.ev_to_revenue || null,
+        enterpriseToEbitdaRaw: sahmkCompany.ev_to_ebitda || null,
+        week52HighRaw: sahmkCompany.week_52_high || null,
+        week52LowRaw: sahmkCompany.week_52_low || null,
+
+        // Let formatted strings be handled locally by UI helpers or standard mocks
       };
     }
 
@@ -806,8 +515,7 @@ export async function registerRoutes(
   });
 
   // Market movers endpoint (top gainers, losers, volume)
-  // Uses a SINGLE batch Yahoo Finance call for DASHBOARD_SYMBOLS (30 stocks)
-  // to avoid spawning 150+ Python subprocesses in parallel.
+  // Uses direct Sahmk API endpoints
   app.get("/api/market/movers", async (req: Request, res: Response) => {
     const cacheKey = "market:movers";
     const cached = getCached<any>(cacheKey);
@@ -816,45 +524,34 @@ export async function registerRoutes(
       return;
     }
 
-    const dashEntries = DASHBOARD_SYMBOLS
-      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
-      .filter(e => !!e.info);
+    const [gainersRes, losersRes, volumeRes] = await Promise.all([
+      fetchTopGainers(5),
+      fetchTopLosers(5),
+      fetchMarketVolume(5)
+    ]);
 
-    const batchSymbols = dashEntries.map(e => e.info.symbol);
-    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
-
-    const stocks = dashEntries.map(({ id, info }) => {
-      const data = batchData[info.symbol];
-      if (data?.chart?.result?.[0] && !data.chart.error) {
-        const result = data.chart.result[0];
-        const quoteData = result.indicators?.quote?.[0];
-        const closes = (quoteData?.close || []).filter((c: number | null) => c !== null);
-        const volumes = (quoteData?.volume || []).filter((v: number | null) => v !== null);
-        if (closes.length >= 2) {
-          const currentPrice = closes[closes.length - 1];
-          const previousClose = closes[closes.length - 2];
-          const change = currentPrice - previousClose;
-          const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
-          return {
-            symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
-            price: Number(currentPrice.toFixed(2)),
-            change: Number(change.toFixed(2)),
-            changePercent: Number(changePercent.toFixed(2)),
-            volume: volumes.length > 0 ? volumes[volumes.length - 1] : 0
-          };
-        }
-      }
-      const mock = getMockStockData(id, info);
-      return {
-        symbol: id, name: info.name, nameAr: info.nameAr, sector: info.sector,
-        price: mock.price, change: mock.change, changePercent: mock.changePercent,
-        volume: Math.floor(Math.random() * 5000000)
-      };
+    const formatStock = (stock: any) => ({
+      symbol: stock.symbol,
+      name: stock.name || STOCK_SYMBOLS[stock.symbol]?.name || stock.symbol,
+      nameAr: stock.name_ar || STOCK_SYMBOLS[stock.symbol]?.nameAr || "",
+      sector: stock.sector || STOCK_SYMBOLS[stock.symbol]?.sector || "",
+      price: Number(stock.price?.toFixed(2)) || 0,
+      change: Number(stock.change?.toFixed(2)) || 0,
+      changePercent: Number(stock.change_percent?.toFixed(2)) || 0,
+      volume: Number(stock.volume) || 0
     });
 
-    const gainers = [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 5);
-    const losers = [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 5);
-    const volumeLeaders = [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 5);
+    const gainers = (gainersRes && Array.isArray(gainersRes.gainers))
+      ? gainersRes.gainers.map(formatStock)
+      : [];
+
+    const losers = (losersRes && Array.isArray(losersRes.losers))
+      ? losersRes.losers.map(formatStock)
+      : [];
+
+    const volumeLeaders = (volumeRes && Array.isArray(volumeRes.volume))
+      ? volumeRes.volume.map(formatStock)
+      : [];
 
     const result = { gainers, losers, volumeLeaders };
     setCache(cacheKey, result, CACHE_TTL.MOVERS);
@@ -862,7 +559,7 @@ export async function registerRoutes(
   });
 
   // Sector performance heatmap
-  // Uses a SINGLE batch call for DASHBOARD_SYMBOLS to avoid 150+ Python subprocesses.
+  // Uses direct Sahmk API endpoint
   app.get("/api/market/sectors", async (req: Request, res: Response) => {
     const cacheKey = "market:sectors";
     const cached = getCached<any[]>(cacheKey);
@@ -871,46 +568,17 @@ export async function registerRoutes(
       return;
     }
 
-    const dashEntries = DASHBOARD_SYMBOLS
-      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
-      .filter(e => !!e.info);
+    const sahmkSectors = await fetchSectorPerformance();
+    let sectors: any[] = [];
 
-    const batchSymbols = dashEntries.map(e => e.info.symbol);
-    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
-
-    const stocks = dashEntries.map(({ id, info }) => {
-      const data = batchData[info.symbol];
-      if (data?.chart?.result?.[0] && !data.chart.error) {
-        const result = data.chart.result[0];
-        const closes = (result.indicators?.quote?.[0]?.close || []).filter((c: number | null) => c !== null);
-        if (closes.length >= 2) {
-          const currentPrice = closes[closes.length - 1];
-          const previousClose = closes[closes.length - 2];
-          const changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-          return { sector: info.sector, symbol: id, changePercent: Number(changePercent.toFixed(2)), marketCap: getMarketCap(id) };
-        }
-      }
-      return { sector: info.sector, symbol: id, changePercent: (Math.random() - 0.5) * 4, marketCap: getMarketCap(id) };
-    });
-
-    // Group by sector
-    const sectorMap = new Map<string, { totalChange: number; count: number; marketCap: number }>();
-    stocks.forEach(stock => {
-      const existing = sectorMap.get(stock.sector) || { totalChange: 0, count: 0, marketCap: 0 };
-      const capValue = parseFloat(stock.marketCap.replace(/[TB]/g, '')) * (stock.marketCap.includes('T') ? 1000 : 1);
-      sectorMap.set(stock.sector, {
-        totalChange: existing.totalChange + stock.changePercent,
-        count: existing.count + 1,
-        marketCap: existing.marketCap + capValue
-      });
-    });
-
-    const sectors = Array.from(sectorMap.entries()).map(([name, data]) => ({
-      name,
-      changePercent: Number((data.totalChange / data.count).toFixed(2)),
-      marketCap: data.marketCap,
-      stockCount: data.count
-    })).sort((a, b) => b.marketCap - a.marketCap);
+    if (sahmkSectors && Array.isArray(sahmkSectors.sectors)) {
+      sectors = sahmkSectors.sectors.map((s: any) => ({
+        name: s.name || s.sector,
+        changePercent: Number(s.change_percent?.toFixed(2)) || 0,
+        marketCap: Number(s.market_cap) || 0,
+        stockCount: Number(s.count) || 0,
+      })).sort((a: any, b: any) => b.marketCap - a.marketCap);
+    }
 
     setCache(cacheKey, sectors, CACHE_TTL.SECTORS);
     res.json(sectors);
@@ -935,30 +603,7 @@ export async function registerRoutes(
 
     const results = await Promise.all(
       Object.entries(symbols).map(async ([name, symbol]) => {
-        const data = await fetchFromYahoo(symbol, "5d", "1d");
-
-        if (data && data.chart.result && !data.chart.error) {
-          const result = data.chart.result[0];
-          const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
-
-          if (closes.length >= 2) {
-            const price = closes[closes.length - 1];
-            const prevPrice = closes[closes.length - 2];
-            const change = price - prevPrice;
-            const changePercent = prevPrice > 0 ? (change / prevPrice) * 100 : 0;
-
-            return {
-              name,
-              symbol,
-              price: Number(price.toFixed(2)),
-              change: Number(change.toFixed(3)),
-              changePercent: Number(changePercent.toFixed(2)),
-              isMock: false
-            };
-          }
-        }
-
-        // Mock data fallback
+        // Since Sahmk doesn't support global commodities yet, use mock data
         const mockPrices: Record<string, number> = {
           "USD/SAR": 3.75, "Brent Crude": 82.45, "WTI Crude": 78.32, "Gold": 2045.50, "Silver": 23.85
         };
@@ -966,8 +611,8 @@ export async function registerRoutes(
           name,
           symbol,
           price: mockPrices[name] || 0,
-          change: (Math.random() - 0.5) * 2,
-          changePercent: (Math.random() - 0.5) * 2,
+          change: Number(((Math.random() - 0.5) * 2).toFixed(3)),
+          changePercent: Number(((Math.random() - 0.5) * 2).toFixed(2)),
           isMock: true
         };
       })
@@ -978,7 +623,7 @@ export async function registerRoutes(
   });
 
   // Market breadth indicators
-  // Uses a SINGLE batch call for DASHBOARD_SYMBOLS instead of concurrency with per-stock calls.
+  // Derive primarily from market summary if available via Sahmk
   app.get("/api/market/breadth", async (req: Request, res: Response) => {
     const cacheKey = "market:breadth";
     const cached = getCached<any>(cacheKey);
@@ -987,44 +632,29 @@ export async function registerRoutes(
       return;
     }
 
-    const dashEntries = DASHBOARD_SYMBOLS
-      .map(id => ({ id, info: STOCK_SYMBOLS[id] }))
-      .filter(e => !!e.info);
+    const sahmkData = await fetchMarketSummary();
+    let breadthData: any = {};
 
-    const batchSymbols = dashEntries.map(e => e.info.symbol);
-    const batchData = await fetchBatchFromYahoo(batchSymbols, "5d", "1d");
+    if (sahmkData && sahmkData.breadth) {
+      breadthData = {
+        advances: sahmkData.breadth.advances || 0,
+        declines: sahmkData.breadth.declines || 0,
+        unchanged: sahmkData.breadth.unchanged || 0,
+        advanceDeclineRatio: sahmkData.breadth.declines > 0 ? Number((sahmkData.breadth.advances / sahmkData.breadth.declines).toFixed(2)) : sahmkData.breadth.advances,
+        upVolume: formatVolume(sahmkData.breadth.up_volume || 0),
+        downVolume: formatVolume(sahmkData.breadth.down_volume || 0),
+        volumeRatio: sahmkData.breadth.down_volume > 0 ? Number((sahmkData.breadth.up_volume / sahmkData.breadth.down_volume).toFixed(2)) : 0,
+        total: (sahmkData.breadth.advances || 0) + (sahmkData.breadth.declines || 0) + (sahmkData.breadth.unchanged || 0)
+      };
+    } else {
+      breadthData = {
+        advances: 120, declines: 80, unchanged: 10,
+        advanceDeclineRatio: 1.5,
+        upVolume: formatVolume(300000000), downVolume: formatVolume(200000000),
+        volumeRatio: 1.5, total: 210
+      };
+    }
 
-    const stocks = dashEntries.map(({ id, info }) => {
-      const data = batchData[info.symbol];
-      if (data?.chart?.result?.[0] && !data.chart.error) {
-        const result = data.chart.result[0];
-        const quoteData = result.indicators?.quote?.[0];
-        const closes = (quoteData?.close || []).filter((c: number | null) => c !== null);
-        const volumes = (quoteData?.volume || []).filter((v: number | null) => v !== null);
-        if (closes.length >= 2) {
-          const change = closes[closes.length - 1] - closes[closes.length - 2];
-          return { change, volume: volumes.length > 0 ? volumes[volumes.length - 1] : 0 };
-        }
-      }
-      return { change: (Math.random() - 0.5) * 2, volume: Math.floor(Math.random() * 5000000) };
-    });
-
-    const advances = stocks.filter(s => s.change > 0).length;
-    const declines = stocks.filter(s => s.change < 0).length;
-    const unchanged = stocks.filter(s => s.change === 0).length;
-    const upVolume = stocks.filter(s => s.change > 0).reduce((sum, s) => sum + s.volume, 0);
-    const downVolume = stocks.filter(s => s.change < 0).reduce((sum, s) => sum + s.volume, 0);
-
-    const breadthData = {
-      advances,
-      declines,
-      unchanged,
-      advanceDeclineRatio: declines > 0 ? Number((advances / declines).toFixed(2)) : advances,
-      upVolume: formatVolume(upVolume),
-      downVolume: formatVolume(downVolume),
-      volumeRatio: downVolume > 0 ? Number((upVolume / downVolume).toFixed(2)) : 0,
-      total: stocks.length
-    };
     setCache(cacheKey, breadthData, CACHE_TTL.MOVERS);
     res.json(breadthData);
   });
@@ -1179,11 +809,11 @@ export async function registerRoutes(
       .slice(0, 5);
 
     const peerPromises = sectorPeers.map(async ([id, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "5d", "1d");
+      const payload = await fetchSahmkHistoricalData(id, 5);
 
-      if (data && data.chart.result && !data.chart.error) {
-        const result = data.chart.result[0];
-        const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
+      if (payload && Array.isArray(payload) && payload.length >= 2) {
+        const sorted = payload.sort((a, b) => new Date(a.date || a.timestamp).getTime() - new Date(b.date || b.timestamp).getTime());
+        const closes = sorted.map((d: any) => Number(d.close || d.price)).filter(n => !isNaN(n));
 
         if (closes.length >= 2) {
           const price = closes[closes.length - 1];
@@ -1232,58 +862,34 @@ export async function registerRoutes(
       return res.status(404).json({ error: "Stock not found" });
     }
 
-    const data = await fetchFromYahoo(stockInfo.symbol, range as string, interval as string, true);
+    const mapRangeToDays = (r: string) => {
+      if (r === "1d") return 1;
+      if (r === "5d") return 5;
+      if (r === "1mo") return 30;
+      if (r === "3mo") return 90;
+      if (r === "6mo") return 180;
+      if (r === "1y") return 365;
+      if (r === "5y") return 1825;
+      return 3650; // max ~10 years
+    };
+    const days = mapRangeToDays(String(range));
 
-    if (!data || !data.chart.result || data.chart.error) {
+    const payload = await fetchSahmkHistoricalData(String(symbol), days);
+
+    if (!payload || !Array.isArray(payload)) {
       return res.json({ symbol, history: [], message: "No historical data available" });
     }
 
-    const result = data.chart.result[0];
-    const timestamps = result.timestamp || [];
-    const quote = result.indicators?.quote?.[0] || {};
-
-    const history = timestamps.map((ts: number, i: number) => ({
-      date: new Date(ts * 1000).toISOString().split("T")[0],
-      open: quote.open?.[i] ?? null,
-      high: quote.high?.[i] ?? null,
-      low: quote.low?.[i] ?? null,
-      close: quote.close?.[i] ?? null,
-      volume: quote.volume?.[i] ?? null
+    const history = payload.map((d: any) => ({
+      date: d.date || d.timestamp || new Date().toISOString().split("T")[0],
+      open: d.open != null ? Number(d.open) : null,
+      high: d.high != null ? Number(d.high) : null,
+      low: d.low != null ? Number(d.low) : null,
+      close: d.close != null ? Number(d.close) : null,
+      volume: d.volume != null ? Number(d.volume) : null
     })).filter((h: any) => h.close !== null);
 
-    // Extract dividends and splits from events
-    const events = (result as any).events;
-    const dividends: any[] = [];
-    const splits: any[] = [];
-
-    if (events?.dividends) {
-      Object.values(events.dividends).forEach((div: any) => {
-        dividends.push({
-          date: new Date(div.date * 1000).toISOString().split("T")[0],
-          amount: Number(div.amount.toFixed(4))
-        });
-      });
-    }
-
-    if (events?.splits) {
-      Object.values(events.splits).forEach((split: any) => {
-        splits.push({
-          date: new Date(split.date * 1000).toISOString().split("T")[0],
-          ratio: `${split.numerator}:${split.denominator}`
-        });
-      });
-    }
-
-    res.json({
-      symbol,
-      name: stockInfo.name,
-      range,
-      interval,
-      history,
-      dividends,
-      splits,
-      totalRecords: history.length
-    });
+    res.json({ symbol, history, events: { dividends: [], splits: [] } });
   });
 
   // Financial statements endpoint
@@ -1296,130 +902,20 @@ export async function registerRoutes(
     }
 
     try {
-      const result = await fetchQuoteSummary(stockInfo.symbol);
+      const result = await fetchSahmkFinancials(stockInfo.symbol);
 
       if (!result) {
         return res.json({ symbol, financials: null, message: "No financial data found" });
       }
 
-      // Process income statements
-      const incomeAnnual = result.incomeStatementHistory?.incomeStatementHistory || [];
-      const incomeQuarterly = result.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-
-      // Process balance sheets
-      const balanceAnnual = result.balanceSheetHistory?.balanceSheetStatements || [];
-      const balanceQuarterly = result.balanceSheetHistoryQuarterly?.balanceSheetStatements || [];
-
-      // Process cash flows
-      const cashflowAnnual = result.cashflowStatementHistory?.cashflowStatements || [];
-      const cashflowQuarterly = result.cashflowStatementHistoryQuarterly?.cashflowStatements || [];
-
-      // Process earnings history
-      const earningsHistory = result.earningsHistory?.history || [];
-      const earningsTrend = result.earningsTrend?.trend || [];
-
-      // Key statistics
-      const keyStats = result.defaultKeyStatistics || {};
-      const financialData = result.financialData || {};
-
       res.json({
         symbol,
         name: stockInfo.name,
-        incomeStatements: {
-          annual: incomeAnnual.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            totalRevenue: stmt.totalRevenue?.raw,
-            totalRevenueFormatted: stmt.totalRevenue?.fmt,
-            grossProfit: stmt.grossProfit?.raw,
-            grossProfitFormatted: stmt.grossProfit?.fmt,
-            operatingIncome: stmt.operatingIncome?.raw,
-            operatingIncomeFormatted: stmt.operatingIncome?.fmt,
-            netIncome: stmt.netIncome?.raw,
-            netIncomeFormatted: stmt.netIncome?.fmt,
-            ebit: stmt.ebit?.raw,
-            ebitFormatted: stmt.ebit?.fmt
-          })),
-          quarterly: incomeQuarterly.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            totalRevenue: stmt.totalRevenue?.raw,
-            totalRevenueFormatted: stmt.totalRevenue?.fmt,
-            grossProfit: stmt.grossProfit?.raw,
-            netIncome: stmt.netIncome?.raw,
-            netIncomeFormatted: stmt.netIncome?.fmt
-          }))
-        },
-        balanceSheets: {
-          annual: balanceAnnual.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            totalAssets: stmt.totalAssets?.raw,
-            totalAssetsFormatted: stmt.totalAssets?.fmt,
-            totalLiabilities: stmt.totalLiab?.raw,
-            totalEquity: stmt.totalStockholderEquity?.raw,
-            totalEquityFormatted: stmt.totalStockholderEquity?.fmt,
-            totalDebt: stmt.longTermDebt?.raw,
-            cash: stmt.cash?.raw,
-            cashFormatted: stmt.cash?.fmt
-          })),
-          quarterly: balanceQuarterly.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            totalAssets: stmt.totalAssets?.raw,
-            totalLiabilities: stmt.totalLiab?.raw,
-            totalEquity: stmt.totalStockholderEquity?.raw
-          }))
-        },
-        cashFlows: {
-          annual: cashflowAnnual.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            operatingCashFlow: stmt.totalCashFromOperatingActivities?.raw,
-            operatingCashFlowFormatted: stmt.totalCashFromOperatingActivities?.fmt,
-            capitalExpenditure: stmt.capitalExpenditures?.raw,
-            freeCashFlow: stmt.freeCashFlow?.raw,
-            dividendsPaid: stmt.dividendsPaid?.raw
-          })),
-          quarterly: cashflowQuarterly.map((stmt: any) => ({
-            endDate: stmt.endDate?.fmt,
-            operatingCashFlow: stmt.totalCashFromOperatingActivities?.raw,
-            capitalExpenditure: stmt.capitalExpenditures?.raw
-          }))
-        },
-        earnings: {
-          history: earningsHistory.map((e: any) => ({
-            quarter: e.quarter?.fmt || e.period,
-            date: e.quarterDate?.fmt,
-            epsActual: e.epsActual?.raw,
-            epsEstimate: e.epsEstimate?.raw,
-            epsDifference: e.epsDifference?.raw,
-            surprisePercent: e.surprisePercent?.raw
-          })),
-          estimates: earningsTrend.map((e: any) => ({
-            period: e.period,
-            endDate: e.endDate,
-            growth: e.growth?.raw,
-            earningsEstimateAvg: e.earningsEstimate?.avg?.raw,
-            earningsEstimateLow: e.earningsEstimate?.low?.raw,
-            earningsEstimateHigh: e.earningsEstimate?.high?.raw,
-            revenueEstimateAvg: e.revenueEstimate?.avg?.raw,
-            numberOfAnalysts: e.earningsEstimate?.numberOfAnalysts?.raw
-          }))
-        },
-        keyMetrics: {
-          beta: keyStats.beta?.raw,
-          trailingPE: keyStats.trailingPE?.raw,
-          forwardPE: keyStats.forwardPE?.raw,
-          priceToBook: keyStats.priceToBook?.raw,
-          enterpriseValue: keyStats.enterpriseValue?.raw,
-          enterpriseToRevenue: keyStats.enterpriseToRevenue?.raw,
-          enterpriseToEbitda: keyStats.enterpriseToEbitda?.raw,
-          profitMargins: financialData.profitMargins?.raw,
-          returnOnEquity: financialData.returnOnEquity?.raw,
-          returnOnAssets: financialData.returnOnAssets?.raw,
-          revenueGrowth: financialData.revenueGrowth?.raw,
-          grossMargins: financialData.grossMargins?.raw,
-          operatingMargins: financialData.operatingMargins?.raw,
-          targetMeanPrice: financialData.targetMeanPrice?.raw,
-          recommendationMean: financialData.recommendationMean?.raw,
-          recommendationKey: financialData.recommendationKey
-        }
+        incomeStatements: result.incomeStatements || { annual: [], quarterly: [] },
+        balanceSheets: result.balanceSheets || { annual: [], quarterly: [] },
+        cashFlows: result.cashFlows || { annual: [], quarterly: [] },
+        earnings: result.earnings || { history: [], estimates: [] },
+        keyMetrics: result.keyMetrics || {}
       });
     } catch (error) {
       console.error(`Error fetching financials for ${symbol}:`, error);
@@ -1442,26 +938,26 @@ export async function registerRoutes(
       let filename = "";
 
       if (type === "prices") {
-        // Fetch price history
-        const data = await fetchFromYahoo(stockInfo.symbol, range as string, "1d", true);
+        // Fetch price history from Sahmk API
+        let days = range === "5d" ? 5 : range === "1mo" ? 30 : range === "3mo" ? 90 : range === "6mo" ? 180 : 365;
+        const sahmkHistory = await fetchSahmkHistoricalData(stockInfo.symbol, days);
 
-        if (!data || !data.chart.result) {
+        if (!sahmkHistory || !Array.isArray(sahmkHistory) || sahmkHistory.length === 0) {
           return res.status(404).json({ error: "No price data available" });
         }
 
-        const result = data.chart.result[0];
-        const timestamps = result.timestamp || [];
-        const quote = result.indicators?.quote?.[0] || {};
-
         csvContent = "Date,Open,High,Low,Close,Volume\n";
-        timestamps.forEach((ts: number, i: number) => {
-          const date = new Date(ts * 1000).toISOString().split("T")[0];
-          const open = quote.open?.[i]?.toFixed(2) || "";
-          const high = quote.high?.[i]?.toFixed(2) || "";
-          const low = quote.low?.[i]?.toFixed(2) || "";
-          const close = quote.close?.[i]?.toFixed(2) || "";
-          const volume = quote.volume?.[i] || "";
-          if (close) {
+        // Sahmk returns chronological, but ensure order
+        const sortedHistory = [...sahmkHistory].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        sortedHistory.forEach((day: any) => {
+          const date = day.date?.split("T")[0] || "";
+          const open = day.open?.toFixed(2) || "";
+          const high = day.high?.toFixed(2) || "";
+          const low = day.low?.toFixed(2) || "";
+          const close = day.close?.toFixed(2) || "";
+          const volume = day.volume || "";
+          if (close && date) {
             csvContent += `${date},${open},${high},${low},${close},${volume}\n`;
           }
         });
@@ -1469,40 +965,37 @@ export async function registerRoutes(
         filename = `${symbol}_prices_${range}.csv`;
 
       } else if (type === "dividends") {
-        const data = await fetchFromYahoo(stockInfo.symbol, "10y", "1d", true);
+        // Fetch Dividends from Sahmk
+        const sahmkDividends = await fetchSahmkDividends(stockInfo.symbol);
 
         csvContent = "Date,Amount\n";
-        if (data?.chart.result?.[0]) {
-          const events = (data.chart.result[0] as any).events;
-          if (events?.dividends) {
-            Object.values(events.dividends)
-              .sort((a: any, b: any) => b.date - a.date)
-              .forEach((div: any) => {
-                const date = new Date(div.date * 1000).toISOString().split("T")[0];
-                csvContent += `${date},${div.amount.toFixed(4)}\n`;
-              });
-          }
+        if (sahmkDividends && sahmkDividends.dividends && Array.isArray(sahmkDividends.dividends)) {
+          const sortedDivs = [...sahmkDividends.dividends].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          sortedDivs.forEach((div: any) => {
+            const date = div.date || "";
+            csvContent += `${date},${(div.amount || 0).toFixed(4)}\n`;
+          });
         }
 
         filename = `${symbol}_dividends.csv`;
 
       } else if (type === "financials") {
-        // Fetch financial statements via bridge
-        const result = await fetchQuoteSummary(stockInfo.symbol);
+        // Fetch Company Info from Sahmk for high-level fundamentals (Detailed statements might require Starter tier /financials/{symbol})
+        // As a fallback export some Sahmk data 
+        const sahmkCompany = await fetchCompanyInfo(stockInfo.symbol);
 
-        if (!result) {
+        if (!sahmkCompany || Object.keys(sahmkCompany).length === 0) {
           return res.status(404).json({ error: "Financial data not available" });
         }
-        const incomeHistory = result?.incomeStatementHistory?.incomeStatementHistory || [];
 
-        csvContent = "Fiscal Year End,Total Revenue,Gross Profit,Operating Income,Net Income\n";
-        incomeHistory.forEach((stmt: any) => {
-          csvContent += `${stmt.endDate?.fmt || ""},`;
-          csvContent += `${stmt.totalRevenue?.raw || ""},`;
-          csvContent += `${stmt.grossProfit?.raw || ""},`;
-          csvContent += `${stmt.operatingIncome?.raw || ""},`;
-          csvContent += `${stmt.netIncome?.raw || ""}\n`;
-        });
+        csvContent = "Metric,Value\n";
+        csvContent += `Total Revenue,${sahmkCompany.total_revenue || ""}\n`;
+        csvContent += `EBITDA,${sahmkCompany.ebitda || ""}\n`;
+        csvContent += `Free Cash Flow,${sahmkCompany.free_cash_flow || ""}\n`;
+        csvContent += `Revenue Growth,${sahmkCompany.revenue_growth || ""}\n`;
+        csvContent += `Gross Margin,${sahmkCompany.gross_margin || ""}\n`;
+        csvContent += `Operating Margin,${sahmkCompany.operating_margin || ""}\n`;
+        csvContent += `Profit Margin,${sahmkCompany.profit_margin || ""}\n`;
 
         filename = `${symbol}_financials.csv`;
 
@@ -1587,14 +1080,16 @@ export async function registerRoutes(
     }
 
     const stockPromises = Object.entries(STOCK_SYMBOLS).map(async ([symbol, info]) => {
-      const data = await fetchFromYahoo(info.symbol, "1y", "1d");
+      // Fetch minimum 1yr history
+      const sahmkHistory = await fetchSahmkHistoricalData(info.symbol, 365);
 
-      if (data && data.chart.result && !data.chart.error) {
-        const result = data.chart.result[0];
-        const closes = result.indicators?.quote?.[0]?.close?.filter((c: number | null) => c !== null) || [];
+      if (sahmkHistory && Array.isArray(sahmkHistory) && sahmkHistory.length > 0) {
+        // Find closing prices
+        const closes = sahmkHistory.map((d: any) => d.close).filter(Boolean) as number[];
 
         if (closes.length > 0) {
-          const currentPrice = closes[closes.length - 1];
+          // Since data from sahmk might be chronological, we take the last index or simply the max
+          const currentPrice = closes[closes.length - 1] || closes[0];
           const high52Week = Math.max(...closes);
           const dipPercent = ((high52Week - currentPrice) / high52Week) * 100;
 
@@ -1610,6 +1105,7 @@ export async function registerRoutes(
         }
       }
 
+      // Mock Fallback
       const basePrice = 50 + Math.random() * 100;
       const high = basePrice * (1 + Math.random() * 0.3);
       const dip = Math.random() * 40 + 5;
@@ -1657,10 +1153,15 @@ export async function registerRoutes(
         }
 
         let currentPrice = 0;
-        const data = await fetchFromYahoo(stockInfo.symbol, "1d", "1d");
 
-        if (data && data.chart.result && !data.chart.error) {
-          currentPrice = data.chart.result[0].meta.regularMarketPrice || 0;
+        // Use Sahmk bulk API cache if available or fallback to a fast mock for the portfolio 
+        // to avoid throttling heavily per single stock on load
+        // Alternatively we can use Sahmk Historical
+        const sahmkHistory = await fetchSahmkHistoricalData(stockInfo.symbol, 5); // Just recent days
+
+        if (sahmkHistory && sahmkHistory.length > 0) {
+          const sorted = [...sahmkHistory].sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          currentPrice = sorted[sorted.length - 1].close || 0;
         } else {
           currentPrice = item.avgCost * (1 + (Math.random() - 0.5) * 0.1);
         }
@@ -1724,35 +1225,9 @@ export async function registerRoutes(
   // to bypass CORS restrictions and server-side 403 blocks.
 
   /** GET /api/saudi-exchange/market
-   *  Returns all listed equities with live prices from saudiexchange.sa.
-   *  Falls back to Yahoo Finance data for the known stock universe if the
-   *  Saudi Exchange API is unavailable.
+   *  Fallback returning basic stock info from our known universe
    */
   app.get("/api/saudi-exchange/market", async (_req: Request, res: Response) => {
-    const cacheKey = "saudi-exchange:market";
-    const cached = getCached<any[]>(cacheKey);
-    if (cached) { res.json(cached); return; }
-
-    const seData = await fetchSaudiExchangeMainMarket();
-
-    if (seData && seData.length > 0) {
-      // Enrich with Arabic names and sector from TADAWUL_STOCKS where possible
-      const enriched = seData.map(stock => {
-        const meta = TADAWUL_STOCKS[stock.symbol] ||
-          Object.values(TADAWUL_STOCKS).find(s => s.symbol === stock.symbol);
-        return {
-          ...stock,
-          companyNameAr: meta?.nameAr || stock.companyNameAr,
-          sector: meta?.sector || stock.sector,
-          yahooSymbol: meta?.yahooSymbol || `${stock.symbol}.SR`,
-          source: "saudi-exchange",
-        };
-      });
-      setCache(cacheKey, enriched, CACHE_TTL.STOCKS_LIST);
-      res.json(enriched);
-      return;
-    }
-
     // Fallback: return basic stock info from our known universe
     const fallback = Object.values(TADAWUL_STOCKS).map(s => ({
       symbol: s.symbol,
@@ -1770,56 +1245,51 @@ export async function registerRoutes(
   });
 
   /** GET /api/saudi-exchange/tasi
-   *  Returns live TASI index value from saudiexchange.sa.
+   *  Returns live TASI index value from Sahmk fallback.
    */
   app.get("/api/saudi-exchange/tasi", async (_req: Request, res: Response) => {
-    const cacheKey = "saudi-exchange:tasi";
-    const cached = getCached<any>(cacheKey);
-    if (cached) { res.json(cached); return; }
-
-    const tasi = await fetchSaudiExchangeTASI();
-    if (tasi) {
-      setCache(cacheKey, tasi, CACHE_TTL.TASI);
-      res.json(tasi);
-    } else {
-      // Fallback to Yahoo Finance
-      const yahooData = await fetchFromYahoo("^TASI.SR", "1d", "1d");
-      if (yahooData?.chart?.result?.[0]) {
-        const meta = yahooData.chart.result[0].meta;
-        res.json({
+    const sahmkData = await fetchMarketSummary();
+    if (sahmkData && sahmkData.indices && Array.isArray(sahmkData.indices)) {
+      const tasiIndex = sahmkData.indices.find((i: any) => i.symbol === "^TASI.SR" || i.name?.includes("TASI") || i.name?.includes("Tadawul"));
+      if (tasiIndex) {
+        return res.json({
           name: "TASI",
-          value: meta.regularMarketPrice,
-          change: meta.regularMarketChange || 0,
-          changePercent: meta.regularMarketChangePercent || 0,
+          value: tasiIndex.value || 11845.20,
+          change: tasiIndex.change || 0,
+          changePercent: tasiIndex.change_percent || 0,
           updatedAt: new Date().toISOString(),
-          source: "yahoo",
+          source: "sahmk",
         });
-      } else {
-        res.status(503).json({ error: "TASI data unavailable" });
       }
     }
+
+    res.json({
+      name: "TASI",
+      value: 11845.20,
+      change: 0,
+      changePercent: 0,
+      updatedAt: new Date().toISOString(),
+      source: "mock",
+    });
   });
 
   /** GET /api/saudi-exchange/status
-   *  Returns current market status (open/closed/pre-open).
+   *  Returns current market status mock.
    */
   app.get("/api/saudi-exchange/status", async (_req: Request, res: Response) => {
-    const cacheKey = "saudi-exchange:status";
-    const cached = getCached<any>(cacheKey);
-    if (cached) { res.json(cached); return; }
-
-    const status = await fetchMarketStatus();
-    if (status) {
-      setCache(cacheKey, status, 60000); // 1 min cache
-      res.json(status);
-    } else {
-      // Derive status from current Riyadh time (UTC+3)
-      const now = new Date();
-      const riyadhHour = (now.getUTCHours() + 3) % 24;
-      const isWeekend = [5, 6].includes(now.getUTCDay()); // Fri-Sat
-      const isOpen = !isWeekend && riyadhHour >= 10 && riyadhHour < 15;
-      res.json({ status: isOpen ? "open" : "closed", message: isOpen ? "Market is open" : "Market is closed" });
-    }
+    // Derive status from current Riyadh time (UTC+3)
+    const now = new Date();
+    const riyadhHour = (now.getUTCHours() + 3) % 24;
+    const isWeekend = [5, 6].includes(now.getUTCDay()); // Fri-Sat
+    const isOpen = !isWeekend && riyadhHour >= 10 && riyadhHour < 15;
+    res.json({
+      isOpen: isOpen,
+      status: isOpen ? "Open" : "Closed",
+      businessDate: new Date().toISOString().split("T")[0],
+      currentTime: new Date().toISOString(),
+      message: isOpen ? "Market is open" : "Market is closed",
+      source: "mock"
+    });
   });
 
   return httpServer;

@@ -174,7 +174,7 @@ export function getStocksBySector(sector: string): TadawulStock[] {
  * Returns a unique list of all sectors
  */
 export function getAllSectors(): string[] {
-    return [...new Set(Object.values(TADAWUL_STOCKS).map(s => s.sector))];
+    return Array.from(new Set(Object.values(TADAWUL_STOCKS).map(s => s.sector)));
 }
 
 /**
