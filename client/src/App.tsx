@@ -1,5 +1,6 @@
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
+import { useStocks, useMarketIndices, useTASIOHLC } from "@/lib/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -37,9 +38,19 @@ function Router() {
   );
 }
 
+function GlobalDataLoader() {
+  // Initiating the core data hooks here to cache the requests globally
+  // The moment any other page calls these hooks, the data will instantly be ready
+  useStocks();
+  useMarketIndices();
+  useTASIOHLC();
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <GlobalDataLoader />
       <LanguageProvider>
         <TooltipProvider>
           <Toaster />
