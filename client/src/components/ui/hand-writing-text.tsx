@@ -28,18 +28,18 @@ function HandWrittenTitle({
                 <motion.svg
                     width="100%"
                     height="100%"
-                    viewBox="0 0 1200 600"
+                    viewBox="0 0 1600 800"
                     initial="hidden"
                     animate="visible"
-                    className="w-full h-full"
+                    className="w-[120%] h-[120%] -left-[10%] -top-[10%] absolute"
                 >
-                    <title>KokonutUI</title>
+                    <title>Circle Animation</title>
                     <motion.path
-                        d="M 950 90 
-                           C 1250 300, 1050 480, 600 520
-                           C 250 520, 150 480, 150 300
-                           C 150 120, 350 80, 600 80
-                           C 850 80, 950 180, 950 180"
+                        d="M 1250 120 
+                           C 1650 400, 1400 650, 800 680
+                           C 200 680, 50 650, 50 400
+                           C 50 160, 300 100, 800 100
+                           C 1150 100, 1250 200, 1250 200"
                         fill="none"
                         strokeWidth="12"
                         stroke="currentColor"
