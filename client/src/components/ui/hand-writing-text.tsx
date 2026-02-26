@@ -28,18 +28,18 @@ function HandWrittenTitle({
                 <motion.svg
                     width="100%"
                     height="100%"
-                    viewBox="0 0 1600 800"
+                    viewBox="0 0 2000 1000"
                     initial="hidden"
                     animate="visible"
-                    className="w-[120%] h-[120%] -left-[10%] -top-[10%] absolute"
+                    className="w-[150%] h-[150%] -left-[25%] -top-[25%] absolute pointer-events-none"
                 >
                     <title>Circle Animation</title>
                     <motion.path
-                        d="M 1250 120 
-                           C 1650 400, 1400 650, 800 680
-                           C 200 680, 50 650, 50 400
-                           C 50 160, 300 100, 800 100
-                           C 1150 100, 1250 200, 1250 200"
+                        d="M 1600 150 
+                           C 2100 500, 1800 800, 1000 850
+                           C 200 850, -50 800, 50 500
+                           C 50 200, 300 100, 1000 100
+                           C 1450 100, 1600 250, 1600 250"
                         fill="none"
                         strokeWidth="12"
                         stroke="currentColor"
