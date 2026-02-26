@@ -31,7 +31,7 @@ function HandWrittenTitle({
                     viewBox="0 0 2000 1000"
                     initial="hidden"
                     animate="visible"
-                    className="w-[150%] h-[150%] -left-[25%] -top-[25%] absolute pointer-events-none"
+                    className="w-[140%] h-[140%] -left-[20%] -top-[30%] absolute pointer-events-none"
                 >
                     <title>Circle Animation</title>
                     <motion.path
