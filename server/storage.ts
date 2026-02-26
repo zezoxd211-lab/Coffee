@@ -3,7 +3,7 @@ import {
   type PriceHistory, type FinancialStatement, type CorporateAction, type EarningsData, type DailySnapshot,
   type PortfolioItem, type InsertPortfolioItem,
   users, watchlist, priceHistory, financialStatements, corporateActions, earningsData, dailySnapshots, portfolio
-} from "@shared/schema";
+} from "../shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
